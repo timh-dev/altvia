@@ -1,0 +1,9 @@
+[project]
+name = "altvia-backend"
+version = "0.1.0"
+description = "Backend services for Altvia"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

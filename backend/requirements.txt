@@ -1,0 +1,15 @@
+dagster==1.11.10
+dagster-webserver==1.11.10
+fastapi==0.116.1
+geoalchemy2==0.17.1
+mlflow==2.12.1
+numpy
+scikit-learn
+pydantic==2.11.7
+setuptools
+pydantic-settings==2.10.1
+psycopg[binary]==3.2.9
+python-multipart==0.0.20
+shapely==2.1.1
+sqlalchemy==2.0.43
+uvicorn[standard]==0.35.0

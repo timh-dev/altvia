@@ -1,0 +1,79 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      ALTVIA_ENV: ${ALTVIA_ENV:-development}
+      APPLE_HEALTH_EXPORT_DIR: /sample-data/apple_health_export
+    volumes:
+      - ./backend:/app
+      - ./apple_health_export:/sample-data/apple_health_export:ro
+    depends_on:
+      - postgres
+      - mlflow
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    command: mlflow server --host 0.0.0.0 --port 5000
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+
+  dagster-webserver:
+    build:
+      context: ./backend
+    command: dagster-webserver -h 0.0.0.0 -p 3000 -w /app/dagster/workspace.yaml
+    ports:
+      - "${DAGSTER_PORT:-3001}:3000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      ALTVIA_ENV: ${ALTVIA_ENV:-development}
+      DAGSTER_HOME: /dagster_home
+      APPLE_HEALTH_EXPORT_DIR: /sample-data/apple_health_export
+    volumes:
+      - ./backend:/app
+      - ./docker/dagster/workspace.yaml:/app/dagster/workspace.yaml
+      - ./apple_health_export:/sample-data/apple_health_export:ro
+      - dagster_home:/dagster_home
+    depends_on:
+      - backend
+      - postgres
+      - mlflow
+
+  dagster-daemon:
+    build:
+      context: ./backend
+    command: dagster-daemon run -w /app/dagster/workspace.yaml
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      ALTVIA_ENV: ${ALTVIA_ENV:-development}
+      DAGSTER_HOME: /dagster_home
+      APPLE_HEALTH_EXPORT_DIR: /sample-data/apple_health_export
+    volumes:
+      - ./backend:/app
+      - ./docker/dagster/workspace.yaml:/app/dagster/workspace.yaml
+      - ./apple_health_export:/sample-data/apple_health_export:ro
+      - dagster_home:/dagster_home
+    depends_on:
+      - dagster-webserver
+
+volumes:
+  postgres_data:
+  dagster_home:
