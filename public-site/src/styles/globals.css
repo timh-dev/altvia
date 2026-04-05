@@ -1,0 +1,38 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Sora:wght@500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 222 47% 7%;
+  --foreground: 210 20% 96%;
+  --card: 222 34% 10%;
+  --card-foreground: 210 20% 96%;
+  --primary: 123 55% 24%;
+  --primary-foreground: 210 20% 98%;
+  --secondary: 28 39% 46%;
+  --secondary-foreground: 210 20% 98%;
+  --muted: 220 16% 18%;
+  --muted-foreground: 220 10% 70%;
+  --accent: 195 100% 50%;
+  --accent-foreground: 210 20% 8%;
+  --border: 220 12% 22%;
+  --input: 220 12% 22%;
+  --ring: 195 100% 50%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  font-family: Inter, sans-serif;
+  background: #f3efe7;
+}

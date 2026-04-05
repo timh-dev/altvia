@@ -1,0 +1,52 @@
+.env
+.env.local
+.env.*.local
+
+# Node / React / Vite
+node_modules/
+dist/
+build/
+.vite/
+.vercel/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Local data artifacts
+*.zip
+*.csv
+*.gpx
+apple_health_export/
+
+# Orchestration / tooling state
+backend/.dagster_home/
+
+# Local data
+postgres_data/
+backend/data/imports/
