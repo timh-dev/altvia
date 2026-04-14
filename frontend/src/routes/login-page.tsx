@@ -19,37 +19,37 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f3efe7] text-[#111111]">
+    <div className="min-h-screen bg-[var(--surface-primary)] text-[var(--text-primary)]">
       <div className="mx-auto grid min-h-screen max-w-[1600px] lg:grid-cols-2">
         <section className="flex min-h-screen flex-col justify-between px-6 py-6 sm:px-10 lg:px-14 lg:py-8">
           <header className="flex items-center justify-between gap-4">
             <button
               type="button"
               onClick={openLanding}
-              className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-[#5e5a53] transition hover:text-[#111111]"
+              className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)] transition hover:text-[var(--text-primary)]"
             >
               <ArrowLeft className="h-4 w-4" />
               Back
             </button>
             <div className="text-right">
-              <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#6b655b]">Altvia</p>
-              <p className="mt-1 text-xs text-[#6f6a61]">Map your movement. Understand your terrain.</p>
+              <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-[var(--text-subtle)]">Altvia</p>
+              <p className="mt-1 text-xs text-[var(--text-subtle)]">Map your movement. Understand your terrain.</p>
             </div>
           </header>
 
           <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-12">
             <div className="mb-10">
-              <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#6b655b]">Login</p>
-              <h1 className="mt-4 font-heading text-4xl tracking-tight text-[#111111]">Enter the map workspace</h1>
-              <p className="mt-4 text-sm leading-7 text-[#4e4a45]">
+              <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-[var(--text-subtle)]">Login</p>
+              <h1 className="mt-4 font-heading text-4xl tracking-tight text-[var(--text-primary)]">Enter the map workspace</h1>
+              <p className="mt-4 text-sm leading-7 text-[var(--text-tertiary)]">
                 Sign in to review sessions, import Apple Health data, and move from terrain imagery into the map-first product surface.
               </p>
             </div>
 
-            <div className="border border-[#ded7cb] bg-white/90 p-8 shadow-[0_24px_70px_rgba(16,16,16,0.08)] backdrop-blur">
+            <div className="border border-[var(--border-solid)] bg-[var(--glass-panel-strong)] p-8 shadow-[0_24px_70px_var(--shadow-color)] backdrop-blur">
               <form className="grid gap-5" onSubmit={handleSubmit}>
                 <div className="grid gap-2">
-                  <label htmlFor="email" className="text-sm font-medium text-[#1d1a17]">
+                  <label htmlFor="email" className="text-sm font-medium text-[var(--text-secondary)]">
                     Email
                   </label>
                   <Input
@@ -64,10 +64,10 @@ export function LoginPage() {
 
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between">
-                    <label htmlFor="password" className="text-sm font-medium text-[#1d1a17]">
+                    <label htmlFor="password" className="text-sm font-medium text-[var(--text-secondary)]">
                       Password
                     </label>
-                    <span className="text-xs uppercase tracking-[0.18em] text-[#7e786e]">Local demo</span>
+                    <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">Local demo</span>
                   </div>
                   <Input
                     id="password"
@@ -79,33 +79,33 @@ export function LoginPage() {
                   />
                 </div>
 
-                <Button className="mt-2 h-11 rounded-none bg-[#1B5E20] text-xs uppercase tracking-[0.24em] text-white" type="submit">
+                <Button className="mt-2 h-11 rounded-none bg-[var(--accent-green)] text-xs uppercase tracking-[0.24em] text-white" type="submit">
                   Sign In
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </form>
 
               <div className="my-6 flex items-center gap-4">
-                <div className="h-px flex-1 bg-[#e3ddd2]" />
-                <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#8a8378]">Or continue with</span>
-                <div className="h-px flex-1 bg-[#e3ddd2]" />
+                <div className="h-px flex-1 bg-[var(--border-solid)]" />
+                <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-very-faint)]">Or continue with</span>
+                <div className="h-px flex-1 bg-[var(--border-solid)]" />
               </div>
 
               <Button
                 variant="outline"
-                className="h-11 w-full rounded-none border-[#d8d2c7] bg-transparent text-xs uppercase tracking-[0.22em] text-[#111111] hover:bg-[#f4f0e8] hover:text-[#111111]"
+                className="h-11 w-full rounded-none border-[var(--border-input)] bg-transparent text-xs uppercase tracking-[0.22em] text-[var(--text-primary)] hover:bg-[var(--surface-tertiary)] hover:text-[var(--text-primary)]"
                 type="button"
                 onClick={login}
               >
                 Continue To Demo
               </Button>
 
-              <p className="mt-6 text-xs leading-6 text-[#6f6a61]">
+              <p className="mt-6 text-xs leading-6 text-[var(--text-subtle)]">
                 By continuing, you enter the current Altvia prototype environment for terrain-aware session review and path analysis.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-3 text-sm text-[#3f3b36]">
+            <div className="mt-8 grid gap-3 text-sm text-[var(--text-tertiary)]">
               <FeatureRow icon={ShieldCheck} text="Calm, data-first language instead of fitness clichés." />
               <FeatureRow icon={Route} text="Electric-blue paths reserved for active route overlays and key motion signals." />
               <FeatureRow icon={Mountain} text="Terrain imagery and topographic references anchor the visual system." />
@@ -113,7 +113,7 @@ export function LoginPage() {
           </main>
         </section>
 
-        <aside className="relative hidden min-h-screen overflow-hidden border-l border-[#d7d0c3] bg-[#ece8df] lg:block">
+        <aside className="relative hidden min-h-screen overflow-hidden border-l border-[var(--border-secondary)] bg-[var(--surface-tertiary)] lg:block">
           <img
             src={loginImageUrl}
             alt="Altvia mountain terrain illustration with halftone texture and topographic lines"
@@ -150,7 +150,7 @@ function FeatureRow({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <Icon className="mt-0.5 h-4 w-4 text-[#1B5E20]" />
+      <Icon className="mt-0.5 h-4 w-4 text-[var(--accent-green)]" />
       <p className="leading-6">{text}</p>
     </div>
   );

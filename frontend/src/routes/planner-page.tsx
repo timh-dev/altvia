@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   ChevronDown,
+  ChevronUp,
   LogOut,
   Map,
   Plus,
@@ -19,14 +20,14 @@ import { ElevationChart, buildElevationChartSeries } from "@/components/elevatio
 import { PlaceSearch } from "@/components/place-search";
 import { SettingsPanel } from "@/components/settings-panel";
 import {
+  analyzePlannerRoute,
   createPlannedWorkout,
   deletePlannedWorkout,
   fetchElevation,
-  fetchPlannerWeather,
   fetchPlannedWorkoutMapFeatures,
   fetchPlannedWorkouts,
   planRoute,
-  predictWorkoutIntensity,
+  type ClusterPredictionResponse,
   type ElevationResponse,
   type IntensityPredictionResponse,
   type PlannerWeatherSummary,
@@ -38,7 +39,7 @@ import { cn } from "@/lib/utils";
 import {
   formatDistance,
   formatElevation,
-  formatMeters,
+  formatPace,
   formatRain,
   formatSnow,
   formatTemperature,
@@ -62,6 +63,9 @@ export function PlannerPage() {
   const logout = useAppStore((state) => state.logout);
   const openMap = useAppStore((state) => state.navigateTo);
   const unitSystem = useAppStore((state) => state.unitSystem);
+  const uiScale = useAppStore((state) => state.uiScale);
+  const isCompact = uiScale === "compact";
+  const [chartMinimized, setChartMinimized] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
@@ -76,6 +80,7 @@ export function PlannerPage() {
   const [activityType, setActivityType] = useState<PlannedWorkoutType>("running");
   const [workoutName, setWorkoutName] = useState("Planned Run");
   const [plannedFor, setPlannedFor] = useState("");
+  const [targetPaceInput, setTargetPaceInput] = useState("");
   const [outAndBack, setOutAndBack] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -92,6 +97,8 @@ export function PlannerPage() {
   const [terrainEnabled, setTerrainEnabled] = useState(false);
   const [predictedIntensity, setPredictedIntensity] = useState<IntensityPredictionResponse | null>(null);
   const [intensityLoading, setIntensityLoading] = useState(false);
+  const [predictedCluster, setPredictedCluster] = useState<ClusterPredictionResponse | null>(null);
+  const [clusterLoading, setClusterLoading] = useState(false);
   const geocodeCacheRef = useRef<Record<string, string>>({});
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -104,15 +111,33 @@ export function PlannerPage() {
     return buildOutAndBackRoute(draftRoutePoints, outAndBack);
   }, [draftRoutePoints, loadedRoutePoints, outAndBack]);
   const draftDistanceMeters = useMemo(() => calculateRouteDistanceMeters(effectiveRoutePoints), [effectiveRoutePoints]);
-  const draftMidpoint = useMemo(() => calculateRouteMidpoint(effectiveRoutePoints), [effectiveRoutePoints]);
   const canSave = effectiveRoutePoints.length >= 2 && workoutName.trim().length > 0 && !saving;
   const routeBearing = useMemo(() => calculateRouteBearing(effectiveRoutePoints), [effectiveRoutePoints]);
+  const estimatedDurationSeconds = useMemo(() => {
+    // Parse "MM:SS" pace input → derive duration from distance
+    if (targetPaceInput.trim() && draftDistanceMeters > 0) {
+      const parts = targetPaceInput.trim().split(":");
+      if (parts.length === 2) {
+        const mins = Number(parts[0]);
+        const secs = Number(parts[1]);
+        if (!isNaN(mins) && !isNaN(secs)) {
+          const paceSecsPerUnit = mins * 60 + secs;
+          // input is per km if metric, per mile if imperial
+          const distanceUnits = unitSystem === "imperial" ? draftDistanceMeters / 1609.344 : draftDistanceMeters / 1000;
+          return paceSecsPerUnit * distanceUnits;
+        }
+      }
+    }
+    return estimatePlannerDurationSeconds(activityType, draftDistanceMeters);
+  }, [activityType, draftDistanceMeters, targetPaceInput, unitSystem]);
   const windRelationLabel = plannerWeather?.wind_direction_deg != null ? describeWindRelation(plannerWeather.wind_direction_deg, routeBearing) : null;
   const waveDirectionLabel = plannerWeather?.wave_direction_deg != null ? formatCompassHeading(plannerWeather.wave_direction_deg) : null;
   const elevationChartSeries = useMemo(
     () => elevationData ? buildElevationChartSeries(effectiveRoutePoints, elevationData.elevations, unitSystem) : null,
     [effectiveRoutePoints, elevationData, unitSystem],
   );
+  const showPlannerChartPanel = activityType !== "swimming"
+    && Boolean(elevationLoading || elevationChartSeries || elevationData || effectiveRoutePoints.length >= 2);
 
   const locationGroups = useMemo(() => {
     const filtered = planFilterType === "all"
@@ -231,7 +256,7 @@ export function PlannerPage() {
       zoom: 10,
       attributionControl: false,
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
 
     map.on("load", () => {
       ensurePlannerTerrainLayers(map);
@@ -288,6 +313,7 @@ export function PlannerPage() {
       });
 
       map.on("click", (event) => {
+        clearPlannerAnalysisState();
         setLoadedRoutePoints(null);
         setLoadedPlanId(null);
         setWaypoints((current) => [
@@ -368,65 +394,36 @@ export function PlannerPage() {
   }, [activityType, waypoints]);
 
   useEffect(() => {
-    if (!draftMidpoint) {
-      setPlannerWeather(null);
-      return;
-    }
-
-    let cancelled = false;
-    setWeatherLoading(true);
-
-    void fetchPlannerWeather({
-      activity_type: activityType,
-      latitude: draftMidpoint.latitude,
-      longitude: draftMidpoint.longitude,
-      planned_for: plannedFor ? new Date(plannedFor).toISOString() : null,
-    })
-      .then((nextWeather) => {
-        if (!cancelled) {
-          setPlannerWeather(nextWeather);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPlannerWeather(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setWeatherLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activityType, draftMidpoint, plannedFor]);
-
-  useEffect(() => {
-    if (effectiveRoutePoints.length < 2 || activityType === "swimming") {
+    if (effectiveRoutePoints.length < 2) {
       setElevationData(null);
+      setElevationLoading(false);
       return;
     }
 
     let cancelled = false;
-    setElevationLoading(true);
+    setElevationLoading(activityType !== "swimming");
 
     void fetchElevation(effectiveRoutePoints)
-      .then((data) => {
-        if (!cancelled) {
-          setElevationData(data);
+      .then((result) => {
+        if (cancelled) {
+          return;
         }
+
+        setElevationData(result);
       })
       .catch(() => {
-        if (!cancelled) {
-          setElevationData(null);
+        if (cancelled) {
+          return;
         }
+
+        setElevationData(null);
       })
       .finally(() => {
-        if (!cancelled) {
-          setElevationLoading(false);
+        if (cancelled) {
+          return;
         }
+
+        setElevationLoading(false);
       });
 
     return () => {
@@ -490,52 +487,6 @@ export function PlannerPage() {
     syncTerrainState();
   }, [terrainEnabled]);
 
-  useEffect(() => {
-    if (!elevationData || !plannerWeather || draftDistanceMeters < 100) {
-      setPredictedIntensity(null);
-      return;
-    }
-
-    let cancelled = false;
-    setIntensityLoading(true);
-
-    const paceSecondsPerKm: Record<string, number> = {
-      running: 360, cycling: 150, hiking: 600, swimming: 150, walking: 720,
-    };
-    const estimatedDuration = (draftDistanceMeters / 1000) * (paceSecondsPerKm[activityType] ?? 360);
-
-    void predictWorkoutIntensity({
-      activity_type: activityType,
-      duration_seconds: estimatedDuration,
-      distance_meters: draftDistanceMeters,
-      elevation_gain_meters: elevationData.elevation_gain_meters,
-      planned_for: plannedFor ? new Date(plannedFor).toISOString() : null,
-      temperature_c: plannerWeather.temperature_c,
-      wind_speed_kmh: plannerWeather.wind_speed_kmh,
-      rain_mm: plannerWeather.rain_mm,
-      snowfall_cm: plannerWeather.snowfall_cm,
-    })
-      .then((result) => {
-        if (!cancelled) {
-          setPredictedIntensity(result);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPredictedIntensity(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIntensityLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [draftDistanceMeters, elevationData, plannerWeather, activityType, plannedFor]);
-
   async function loadPlannerWorkspace() {
     setLoading(true);
     setError(null);
@@ -562,24 +513,46 @@ export function PlannerPage() {
     setSaving(true);
     setError(null);
     try {
-      await createPlannedWorkout({
+      setWeatherLoading(Boolean(plannedFor));
+      setIntensityLoading(Boolean(plannedFor));
+      setClusterLoading(true);
+
+      const analysis = await analyzePlannerRoute({
+        activity_type: activityType,
+        route_points: effectiveRoutePoints,
+        planned_for: plannedFor ? new Date(plannedFor).toISOString() : null,
+        duration_seconds: estimatedDurationSeconds,
+      });
+
+      setElevationData(analysis.elevation);
+      setPlannerWeather(analysis.weather);
+      setPredictedIntensity(analysis.predicted_intensity);
+      setPredictedCluster(analysis.predicted_cluster);
+
+      const createdPlan = await createPlannedWorkout({
         name: workoutName.trim(),
         activity_type: activityType,
         planned_for: plannedFor ? new Date(plannedFor).toISOString() : null,
         route_points: effectiveRoutePoints,
+        analysis_context_json: {
+          estimated_duration_seconds: analysis.estimated_duration_seconds,
+          avg_pace_seconds_per_mile: analysis.avg_pace_seconds_per_mile,
+          predicted_completion_time: analysis.predicted_completion_time,
+          elevation: analysis.elevation,
+          weather: analysis.weather,
+          predicted_intensity: analysis.predicted_intensity,
+          predicted_cluster: analysis.predicted_cluster,
+        },
       });
-      setWaypoints([]);
-      setDraftRoutePoints([]);
-      setDraftRouteSource("manual");
-      setLoadedRoutePoints(null);
-      setLoadedPlanId(null);
-      setElevationData(null);
-      setHoveredElevationPointIndex(null);
+      setLoadedPlanId(createdPlan.id);
+      setLoadedRoutePoints(createdPlan.route_points);
       await loadPlannerWorkspace();
-      setSidebarTab("plans");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save planned workout.");
     } finally {
+      setWeatherLoading(false);
+      setIntensityLoading(false);
+      setClusterLoading(false);
       setSaving(false);
     }
   }
@@ -601,6 +574,15 @@ export function PlannerPage() {
     }
   }
 
+  function clearPlannerAnalysisState() {
+    setPlannerWeather(null);
+    setPredictedIntensity(null);
+    setPredictedCluster(null);
+    setWeatherLoading(false);
+    setIntensityLoading(false);
+    setClusterLoading(false);
+  }
+
   function resetToNewRoute() {
     setLoadedRoutePoints(null);
     setLoadedPlanId(null);
@@ -612,6 +594,8 @@ export function PlannerPage() {
     setHoveredElevationPointIndex(null);
     setWorkoutName(defaultPlannerName(activityType));
     setPlannedFor("");
+    setTargetPaceInput("");
+    clearPlannerAnalysisState();
     setError(null);
   }
 
@@ -621,6 +605,9 @@ export function PlannerPage() {
     setWorkoutName(defaultPlannerName(nextType));
     setLoadedRoutePoints(null);
     setLoadedPlanId(null);
+    setPlannedDurationMinutes("");
+    setTargetHeartRateBpm("");
+    clearPlannerAnalysisState();
   }
 
   function handlePlaceSelected(place: { displayName: string; latitude: number; longitude: number; boundingBox: [number, number, number, number] | null }) {
@@ -641,41 +628,51 @@ export function PlannerPage() {
   }
 
   return (
-    <div className="relative h-screen overflow-hidden bg-[#f3efe7] text-[#111111]">
-      <div ref={mapContainerRef} className="absolute inset-0" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(79,195,247,0.1),transparent_24%),radial-gradient(circle_at_82%_16%,rgba(27,94,32,0.09),transparent_22%),linear-gradient(180deg,rgba(243,239,231,0.08)_0%,rgba(243,239,231,0.24)_100%)]" />
+    <div
+      className="relative overflow-hidden bg-[var(--surface-primary)] text-[var(--text-primary)]"
+      style={isCompact
+        ? { transform: "scale(0.8)", transformOrigin: "top left", width: "125vw", height: "125vh" }
+        : { height: "100vh" }
+      }
+    >
+      <div
+        ref={mapContainerRef}
+        className="absolute inset-0"
+        style={isCompact ? { transform: "scale(1.25)", transformOrigin: "top left", width: "80%", height: "80%" } : undefined}
+      />
+      <div className="pointer-events-none absolute inset-0 bg-[var(--planner-gradient-overlay)]" />
 
       <div className="absolute left-4 right-4 top-4 z-30 flex flex-wrap items-start gap-3 sm:left-6 sm:right-6">
         <header className="shrink-0">
-          <div className="flex items-center justify-between gap-4 rounded-[1.35rem] border border-[rgba(217,209,197,0.52)] bg-[rgba(250,247,241,0.42)] px-4 py-2.5 shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
+          <div className="flex items-center justify-between gap-4 rounded-[1.35rem] border border-[var(--border-translucent-mid)] bg-[var(--glass-panel)] px-4 py-2.5 shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
             <Button
               variant="outline"
-              className="h-9 rounded-full border-[#d7cec1] bg-white/60 px-3 text-[#1d1a17] hover:bg-white hover:text-[#111111]"
+              className="h-9 rounded-full border-[var(--border-secondary)] bg-[var(--glass-button)] px-3 text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]"
               onClick={() => openMap("map")}
             >
               <Map className="h-4 w-4" />
             </Button>
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-[#5d7f8f]">Altvia</p>
-              <p className="mt-0.5 text-xs text-[#49443d]">Planner</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--text-label)]">Altvia</p>
+              <p className="mt-0.5 text-xs text-[var(--text-section)]">Planner</p>
             </div>
             <div ref={profileMenuRef} className="relative pointer-events-auto">
               <button
                 type="button"
                 onClick={() => setProfileMenuOpen((value) => !value)}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-[#d7cec1] bg-white/60 px-3 text-[#1d1a17] transition hover:bg-white"
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--glass-button)] px-3 text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
               >
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#1d1a17] text-white">
                   <User className="h-3.5 w-3.5" />
                 </span>
-                <ChevronDown className={cn("h-4 w-4 text-[#6a6358] transition", profileMenuOpen ? "rotate-180" : "")} />
+                <ChevronDown className={cn("h-4 w-4 text-[var(--text-subtle)] transition", profileMenuOpen ? "rotate-180" : "")} />
               </button>
               {profileMenuOpen ? (
-                <div className="absolute right-0 top-full mt-2 w-44 rounded-[1rem] border border-[rgba(217,209,197,0.68)] bg-[rgba(250,247,241,0.96)] p-2 shadow-[0_18px_36px_rgba(17,17,17,0.12)] backdrop-blur-[20px]">
+                <div className="absolute right-0 top-full mt-2 w-44 rounded-[1rem] border border-[var(--border-translucent)] bg-[var(--glass-dropdown)] p-2 shadow-[0_18px_36px_var(--shadow-medium)] backdrop-blur-[20px]">
                   <button
                     type="button"
                     onClick={() => openMap("map")}
-                    className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[#1d1a17] transition hover:bg-white"
+                    className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
                   >
                     <Map className="h-4 w-4" />
                     Workouts
@@ -686,7 +683,7 @@ export function PlannerPage() {
                       setSettingsOpen((value) => !value);
                       setProfileMenuOpen(false);
                     }}
-                    className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[#1d1a17] transition hover:bg-white"
+                    className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
                   >
                     <Settings className="h-4 w-4" />
                     Settings
@@ -694,7 +691,7 @@ export function PlannerPage() {
                   <button
                     type="button"
                     onClick={logout}
-                    className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[#1d1a17] transition hover:bg-white"
+                    className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
                   >
                     <LogOut className="h-4 w-4" />
                     Logout
@@ -722,8 +719,8 @@ export function PlannerPage() {
             className={cn(
               "pointer-events-auto inline-flex h-9 items-center rounded-full border px-3 text-xs uppercase tracking-[0.18em] transition",
               terrainEnabled
-                ? "border-[#1B5E20]/35 bg-[#1B5E20] text-white hover:bg-[#174b1a]"
-                : "border-[#d7cec1] bg-white/60 text-[#1d1a17] hover:bg-white",
+                ? "border-[var(--accent-green)]/35 bg-[var(--accent-green)] text-white hover:bg-[var(--accent-green-hover)]"
+                : "border-[var(--border-secondary)] bg-[var(--glass-button)] text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]",
             )}
           >
             3D Terrain
@@ -731,15 +728,15 @@ export function PlannerPage() {
         </div>
       </div>
 
-      <aside className="absolute bottom-4 left-4 top-24 z-20 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border border-[rgba(216,208,194,0.5)] bg-[rgba(250,247,241,0.4)] shadow-[0_24px_60px_rgba(17,17,17,0.08)] backdrop-blur-[24px] sm:left-6 xl:w-[380px]">
+      <aside className="absolute bottom-4 left-4 top-24 z-20 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border border-[var(--border-translucent-half)] bg-[var(--glass-panel)] shadow-[0_24px_60px_var(--shadow-color)] backdrop-blur-[24px] sm:left-6 xl:w-[380px]">
         <div className="flex h-full flex-col">
-          <div className="border-b border-[#ddd5c8] px-5 py-5">
+          <div className="border-b border-[var(--border-solid)] px-5 py-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.26em] text-[#5d7f8f]">
+                <p className="font-mono text-[10px] uppercase tracking-[0.26em] text-[var(--text-label)]">
                   {loadedPlanId ? "Editing" : "Planning"}
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#111111]">
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
                   {loadedPlanId ? workoutName : "Build your next route"}
                 </h2>
               </div>
@@ -747,21 +744,21 @@ export function PlannerPage() {
                 <button
                   type="button"
                   onClick={resetToNewRoute}
-                  className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#d7cec1] bg-white/60 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-[#1d1a17] transition hover:bg-white"
+                  className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--border-secondary)] bg-[var(--glass-button)] px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   New
                 </button>
               ) : null}
             </div>
-            <p className="mt-2 text-sm leading-6 text-[#5c564d]">
+            <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
               {loadedPlanId
                 ? "Viewing a saved plan. Click New to start a fresh route, or drop points on the map to replace this route."
                 : "Click the map to drop route points. The first slice keeps it manual and fast: route geometry, distance, workout type, and save."}
             </p>
           </div>
 
-          <div className="flex gap-1 border-b border-[#ddd5c8] px-5 py-2">
+          <div className="flex gap-1 border-b border-[var(--border-solid)] px-5 py-2">
             <PanelTab label="Create" active={sidebarTab === "create"} onClick={() => setSidebarTab("create")} />
             <PanelTab label="Plans" active={sidebarTab === "plans"} onClick={() => setSidebarTab("plans")} />
           </div>
@@ -769,14 +766,14 @@ export function PlannerPage() {
           <div className="flex-1 overflow-y-auto px-5 py-5">
             {sidebarTab === "create" ? (
             <div className="grid gap-5">
-              <section className="rounded-[1.5rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.34)] p-4 backdrop-blur-[18px]">
+              <section className="rounded-[1.5rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card)] p-4 backdrop-blur-[18px]">
                 <div className="grid gap-3">
-                  <label className="grid gap-2 text-sm text-[#4f4941]">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Workout Type</span>
+                  <label className="grid gap-2 text-sm text-[var(--text-tertiary)]">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Workout Type</span>
                       <select
                         value={activityType}
                         onChange={handleActivityTypeChange}
-                        className="h-11 rounded-[1rem] border border-[#d7cec1] bg-[#fbf8f2] px-4 text-sm text-[#111111] outline-none transition focus:border-[#00BFFF]/50"
+                        className="h-11 rounded-[1rem] border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-4 text-sm text-[var(--text-primary)] outline-none transition focus:border-[#00BFFF]/50"
                       >
                         <option value="running">Running</option>
                         <option value="cycling">Cycling</option>
@@ -785,62 +782,88 @@ export function PlannerPage() {
                       </select>
                   </label>
 
-                  <label className="grid gap-2 text-sm text-[#4f4941]">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Plan Name</span>
+                  <label className="grid gap-2 text-sm text-[var(--text-tertiary)]">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Plan Name</span>
                     <input
                       value={workoutName}
                       onChange={(event) => setWorkoutName(event.target.value)}
-                      className="h-11 rounded-[1rem] border border-[#d7cec1] bg-[#fbf8f2] px-4 text-sm text-[#111111] outline-none transition focus:border-[#00BFFF]/50"
+                      className="h-11 rounded-[1rem] border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-4 text-sm text-[var(--text-primary)] outline-none transition focus:border-[#00BFFF]/50"
                     />
                   </label>
 
-                  <label className="grid gap-2 text-sm text-[#4f4941]">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Planned For</span>
+                  <label className="grid gap-2 text-sm text-[var(--text-tertiary)]">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Planned For</span>
                     <div className="relative">
                       <input
                         type="datetime-local"
                         value={plannedFor}
-                        onChange={(event) => setPlannedFor(event.target.value)}
-                        className="h-11 w-full rounded-[1rem] border border-[#d7cec1] bg-[#fbf8f2] px-4 pr-10 text-sm text-[#111111] outline-none transition focus:border-[#00BFFF]/50"
+                        onChange={(event) => {
+                          clearPlannerAnalysisState();
+                          setPlannedFor(event.target.value);
+                        }}
+                        className="h-11 w-full rounded-[1rem] border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-4 pr-10 text-sm text-[var(--text-primary)] outline-none transition focus:border-[#00BFFF]/50"
                       />
-                      <Calendar className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a7266]" />
+                      <Calendar className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-faint)]" />
                     </div>
                   </label>
 
                   <div className="grid grid-cols-2 gap-3">
+                    <label className="grid gap-2 text-sm text-[var(--text-tertiary)]">
+                      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Target Pace</span>
+                      <input
+                        type="text"
+                        value={targetPaceInput}
+                        onChange={(event) => {
+                          clearPlannerAnalysisState();
+                          setTargetPaceInput(event.target.value);
+                        }}
+                        placeholder={unitSystem === "imperial" ? "MM:SS /mi" : "MM:SS /km"}
+                        className="h-11 rounded-[1rem] border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-4 text-sm text-[var(--text-primary)] outline-none transition focus:border-[#00BFFF]/50"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
                       <PlannerMetricCard label="Draft Distance" value={formatDistance(draftDistanceMeters, unitSystem)} />
-                      <PlannerMetricCard label="Waypoints" value={waypoints.length.toString()} />
+                      <PlannerMetricCard
+                        label="Target Pace"
+                        value={draftDistanceMeters > 0 && estimatedDurationSeconds > 0 ? formatPace(estimatedDurationSeconds / (draftDistanceMeters / 1609.344), unitSystem) : "Pending"}
+                      />
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => setOutAndBack((current) => !current)}
+                    onClick={() => {
+                      clearPlannerAnalysisState();
+                      setOutAndBack((current) => !current);
+                    }}
                     className={cn(
                       "flex items-center justify-between rounded-[1rem] border px-4 py-3 text-left transition",
                       outAndBack
-                        ? "border-[#1B5E20]/30 bg-[#1B5E20]/10 text-[#123d16]"
-                        : "border-[#d7cec1] bg-[#fbf8f2] text-[#4f4941] hover:bg-white",
+                        ? "border-[var(--accent-green)]/30 bg-[var(--accent-green)]/10 text-[var(--text-primary)]"
+                        : "border-[var(--border-secondary)] bg-[var(--surface-secondary)] text-[var(--text-tertiary)] hover:bg-[var(--surface-elevated)]",
                     )}
                   >
                     <div>
-                      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Route Shape</p>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Route Shape</p>
                       <p className="mt-1 text-sm">{outAndBack ? "Out and back" : "One way"}</p>
                     </div>
                     <span
                       className={cn(
                         "inline-flex h-6 min-w-11 items-center rounded-full border p-1 transition",
-                        outAndBack ? "justify-end border-[#1B5E20]/30 bg-[#1B5E20]" : "justify-start border-[#d7cec1] bg-white",
+                        outAndBack ? "justify-end border-[var(--accent-green)]/30 bg-[var(--accent-green)]" : "justify-start border-[var(--border-secondary)] bg-white",
                       )}
                     >
-                      <span className="h-4 w-4 rounded-full bg-white shadow-[0_2px_8px_rgba(17,17,17,0.18)]" />
+                      <span className="h-4 w-4 rounded-full bg-white shadow-[0_2px_8px_var(--shadow-color)]" />
                     </span>
                   </button>
 
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"
-                      className="h-10 rounded-full border-[#d7cec1] bg-white/60 px-4 text-[#1d1a17] hover:bg-white hover:text-[#111111]"
+                      className="h-10 rounded-full border-[var(--border-secondary)] bg-[var(--glass-button)] px-4 text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]"
                       onClick={() => {
+                        clearPlannerAnalysisState();
                         if (loadedRoutePoints) {
                           setLoadedRoutePoints(null);
                           return;
@@ -854,8 +877,9 @@ export function PlannerPage() {
                     </Button>
                     <Button
                       variant="outline"
-                      className="h-10 rounded-full border-[#d7cec1] bg-white/60 px-4 text-[#1d1a17] hover:bg-white hover:text-[#111111]"
+                      className="h-10 rounded-full border-[var(--border-secondary)] bg-[var(--glass-button)] px-4 text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]"
                       onClick={() => {
+                        clearPlannerAnalysisState();
                         setLoadedRoutePoints(null);
                         setWaypoints([]);
                         setDraftRoutePoints([]);
@@ -871,7 +895,7 @@ export function PlannerPage() {
                     </Button>
                     <Button
                       variant="outline"
-                      className="h-10 rounded-full border-[#1B5E20]/30 bg-[#1B5E20] px-4 text-white hover:bg-[#174b1a] hover:text-white"
+                      className="h-10 rounded-full border-[var(--accent-green)]/30 bg-[var(--accent-green)] px-4 text-white hover:bg-[var(--accent-green-hover)] hover:text-white"
                       onClick={() => void handleSavePlan()}
                       disabled={!canSave}
                     >
@@ -883,125 +907,10 @@ export function PlannerPage() {
                   {error ? <InlinePlannerMessage>{error}</InlinePlannerMessage> : null}
                 </div>
               </section>
-
-              <section className="rounded-[1.5rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.34)] p-4 backdrop-blur-[18px]">
-                <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#7a7266]">Open-Meteo Weather</p>
-                {weatherLoading ? <p className="mt-3 text-sm text-[#5c564d]">Loading cached forecast...</p> : null}
-                {!weatherLoading && !plannerWeather ? (
-                  <div className="mt-3 grid gap-2 text-sm leading-6 text-[#5c564d]">
-                    <div>Drop at least two route points to fetch weather for your area.</div>
-                    <div>Runs / Cycling: wind, rain, snow, and inferred ice risk.</div>
-                    <div>Swimming: wind, wave height/period, and sea surface temperature.</div>
-                  </div>
-                ) : null}
-                {!weatherLoading && plannerWeather ? (
-                  <div className="mt-3 grid gap-3">
-                    <div className="flex items-center justify-between text-xs text-[#6a6358]">
-                      <span>{plannerWeather.forecast_time ? formatDateTime(plannerWeather.forecast_time) : "Nearest forecast"}</span>
-                      <span>{plannerWeather.cached ? "Served from area cache" : "Fetched from Open-Meteo"}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <PlannerMetricCard label="Temperature" value={formatTemperature(plannerWeather.temperature_c, unitSystem)} />
-                      <PlannerMetricCard label="Wind" value={formatWind(plannerWeather.wind_speed_kmh, unitSystem)} />
-                      <PlannerMetricCard label="Rain" value={formatRain(plannerWeather.rain_mm, unitSystem)} />
-                      <PlannerMetricCard label="Snow" value={formatSnow(plannerWeather.snowfall_cm, unitSystem)} />
-                      {activityType === "swimming" ? (
-                        <PlannerMetricCard
-                          label="Sea Temp"
-                          value={formatTemperature(plannerWeather.sea_surface_temperature_c, unitSystem)}
-                        />
-                      ) : (
-                        <PlannerMetricCard label="Ice Risk" value={plannerWeather.ice_risk ? "Watch for ice" : "Low"} />
-                      )}
-                      {activityType === "swimming" ? (
-                        <PlannerMetricCard label="Wave Height" value={formatMeters(plannerWeather.wave_height_m, unitSystem)} />
-                      ) : (
-                        <PlannerMetricCard label="Wind Gusts" value={formatWind(plannerWeather.wind_gusts_kmh, unitSystem)} />
-                      )}
-                    </div>
-                    {activityType === "swimming" ? (
-                      <p className="text-sm text-[#5c564d]">
-                        Wave period: {formatSeconds(plannerWeather.wave_period_s)}. Next pass can turn this into a swim readiness summary.
-                      </p>
-                    ) : (
-                      <p className="text-sm text-[#5c564d]">
-                        Precipitation probability: {formatPercent(plannerWeather.precipitation_probability)}. Next pass can add prep guidance from these forecast blocks.
-                      </p>
-                    )}
-                    <div className="grid gap-2">
-                      {plannerWeather.wind_direction_deg != null ? (
-                        <div className="flex items-center gap-3 rounded-[1rem] border border-[#d7cec1] bg-white/80 px-3 py-2 shadow-[0_10px_24px_rgba(17,17,17,0.08)]">
-                          <WindCompass direction={plannerWeather.wind_direction_deg} />
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.2em] text-[#5d7f8f]">Wind direction</p>
-                            <p className="text-base font-semibold text-[#1d1a17]">
-                              {formatCompassHeading(plannerWeather.wind_direction_deg)}
-                              {windRelationLabel ? ` • ${windRelationLabel}` : ""}
-                            </p>
-                            <p className="text-[11px] text-[#5c564d]">
-                              {formatWind(plannerWeather.wind_speed_kmh, unitSystem)} ({Math.round(plannerWeather.wind_direction_deg)}°)
-                            </p>
-                          </div>
-                        </div>
-                      ) : null}
-                      {activityType === "swimming" && plannerWeather.wave_height_m != null ? (
-                        <div className="rounded-[1rem] border border-[#d7cec1] bg-white/80 p-3 shadow-[0_10px_24px_rgba(17,17,17,0.08)]">
-                          <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-[#5d7f8f]">
-                            <span>Wave direction</span>
-                            <span>{waveDirectionLabel ?? "Unknown"}</span>
-                          </div>
-                          <div className="mt-2 h-2 w-full rounded-full bg-[#d7cec1]">
-                            <div
-                              className="h-full rounded-full bg-[#1B5E20]"
-                              style={{ width: `${Math.min((plannerWeather.wave_height_m ?? 0) / 3, 1) * 100}%` }}
-                            />
-                          </div>
-                          <div className="mt-2 flex items-center justify-between text-[11px] text-[#5c564d]">
-                            <span>Height</span>
-                            <span>{formatMeters(plannerWeather.wave_height_m, unitSystem)}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-[11px] text-[#5c564d]">
-                            <span>Period</span>
-                            <span>{formatSeconds(plannerWeather.wave_period_s)}</span>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="rounded-[1.5rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.34)] p-4 backdrop-blur-[18px]">
-                <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#7a7266]">Predicted Effort</p>
-                {intensityLoading ? <p className="mt-3 text-sm text-[#5c564d]">Estimating effort...</p> : null}
-                {!intensityLoading && !predictedIntensity ? (
-                  <p className="mt-3 text-sm leading-6 text-[#5c564d]">
-                    Draw a route with weather loaded to see a predicted effort score.
-                  </p>
-                ) : null}
-                {!intensityLoading && predictedIntensity ? (() => {
-                  const score = predictedIntensity.predicted_effort_score;
-                  const color = score < 25 ? "#22c55e" : score < 50 ? "#84cc16" : score < 75 ? "#eab308" : score < 90 ? "#f97316" : "#ef4444";
-                  return (
-                    <div className="mt-3 grid gap-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <PlannerMetricCard label="Effort Score" value={`${Math.round(score)} / 100`} />
-                        <PlannerMetricCard label="Confidence" value={`${Math.round(predictedIntensity.confidence_interval_low)}–${Math.round(predictedIntensity.confidence_interval_high)}`} />
-                      </div>
-                      <div className="h-2 w-full rounded-full bg-[rgba(221,213,200,0.4)] overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: color }} />
-                      </div>
-                      <p className="text-xs text-[#5c564d]">
-                        {predictedIntensity.weather_adjusted ? "Weather-adjusted prediction" : "Prediction without weather data"}
-                      </p>
-                    </div>
-                  );
-                })() : null}
-              </section>
             </div>
             ) : (
             <div className="grid gap-4">
-              <div className="flex flex-wrap gap-1.5 rounded-[1.15rem] border border-[#ddd5c8] bg-[#fbf8f2] p-1.5">
+              <div className="flex flex-wrap gap-1.5 rounded-[1.15rem] border border-[var(--border-solid)] bg-[var(--surface-secondary)] p-1.5">
                 {(["all", "running", "cycling", "hiking", "swimming"] as const).map((filterValue) => (
                   <ActivityFilterPill
                     key={filterValue}
@@ -1012,9 +921,9 @@ export function PlannerPage() {
                 ))}
               </div>
 
-              {loading ? <p className="text-sm text-[#5c564d]">Loading plans...</p> : null}
+              {loading ? <p className="text-sm text-[var(--text-muted)]">Loading plans...</p> : null}
               {!loading && locationGroups.length === 0 ? (
-                <p className="text-sm leading-6 text-[#5c564d]">
+                <p className="text-sm leading-6 text-[var(--text-muted)]">
                   {plannedWorkouts.length === 0
                     ? "No saved plans yet. Drop a few points on the map and save your first route."
                     : "No plans match this filter."}
@@ -1023,10 +932,10 @@ export function PlannerPage() {
               {!loading && locationGroups.map((group) => (
                 <section key={group.locationKey} className="grid gap-2">
                   <div className="flex items-center justify-between">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#5d7f8f]">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-label)]">
                       {locationNames[group.locationKey] ?? "Loading location..."}
                     </p>
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-[#7a7266]">
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
                       {group.plans.length} {group.plans.length === 1 ? "plan" : "plans"}
                     </span>
                   </div>
@@ -1047,6 +956,11 @@ export function PlannerPage() {
                           setWorkoutName(plannedWorkout.name);
                           setActivityType(plannedWorkout.activity_type as PlannedWorkoutType);
                           setPlannedFor(plannedWorkout.planned_for ? toDateTimeLocalValue(plannedWorkout.planned_for) : "");
+                          setTargetPaceInput("");
+                          setElevationData(plannedWorkout.analysis_context_json?.elevation ?? null);
+                          setPlannerWeather(plannedWorkout.analysis_context_json?.weather ?? null);
+                          setPredictedIntensity(plannedWorkout.analysis_context_json?.predicted_intensity ?? null);
+                          setPredictedCluster(plannedWorkout.analysis_context_json?.predicted_cluster ?? null);
                           setOutAndBack(false);
                           fitPlannerToRoute(mapRef.current, plannedWorkout.route_points);
                           setSidebarTab("create");
@@ -1054,18 +968,18 @@ export function PlannerPage() {
                         className={cn(
                           "w-full rounded-[1.1rem] border p-3 text-left transition",
                           loadedPlanId === plannedWorkout.id
-                            ? "border-[#1B5E20]/30 bg-[#1B5E20]/8 hover:bg-[#1B5E20]/12"
-                            : "border-[#ddd5c8] bg-white/55 hover:bg-white/78",
+                            ? "border-[var(--accent-green)]/30 bg-[var(--accent-green)]/8 hover:bg-[var(--accent-green)]/12"
+                            : "border-[var(--border-solid)] bg-[var(--glass-card-light)] hover:bg-[var(--glass-pill)]",
                         )}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-medium text-[#111111]">{plannedWorkout.name}</p>
-                            <p className="mt-1 text-xs text-[#70695e]">
+                            <p className="text-sm font-medium text-[var(--text-primary)]">{plannedWorkout.name}</p>
+                            <p className="mt-1 text-xs text-[var(--text-page-secondary)]">
                             {humanizeActivityType(plannedWorkout.activity_type)} • {formatDistance(plannedWorkout.distance_meters, unitSystem)}
                             </p>
                           </div>
-                          <div className="rounded-full border border-[#ddd5c8] bg-white/70 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#70695e]">
+                          <div className="rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--text-page-secondary)]">
                             {plannedWorkout.planned_for ? formatDateTime(plannedWorkout.planned_for) : "No date"}
                           </div>
                         </div>
@@ -1074,7 +988,7 @@ export function PlannerPage() {
                         type="button"
                         disabled={deletingPlanId === plannedWorkout.id}
                         onClick={() => void handleDeletePlan(plannedWorkout.id)}
-                        className="absolute right-3 top-3 inline-flex h-7 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-500 shadow-[0_4px_12px_rgba(17,17,17,0.1)] transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-70"
+                        className="absolute right-3 top-3 inline-flex h-7 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-500 shadow-[0_4px_12px_var(--shadow-color)] transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-70"
                       >
                         {deletingPlanId === plannedWorkout.id ? "..." : <Trash2 className="h-4 w-4" />}
                       </button>
@@ -1088,26 +1002,186 @@ export function PlannerPage() {
         </div>
       </aside>
 
-      {activityType !== "swimming" && (elevationLoading || elevationChartSeries || elevationData) ? (
-        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2 rounded-[1.35rem] border border-[rgba(221,213,200,0.5)] bg-[rgba(250,247,241,0.42)] px-4 py-3 shadow-[0_18px_40px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
-          <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[#5d7f8f]">Elevation Profile</p>
-          {elevationLoading ? <p className="text-sm text-[#5c564d]">Loading elevation data...</p> : null}
-          {!elevationLoading && elevationChartSeries ? (
-            <div className="grid gap-3">
-              <ElevationChart
-                series={elevationChartSeries}
-                hoveredPointIndex={hoveredElevationPointIndex}
-                onHoverChange={setHoveredElevationPointIndex}
-                onHoverClear={() => setHoveredElevationPointIndex(null)}
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <PlannerMetricCard label="Elevation Gain" value={formatElevation(elevationData?.elevation_gain_meters, unitSystem)} />
-                <PlannerMetricCard label="Elevation Loss" value={formatElevation(elevationData?.elevation_loss_meters, unitSystem)} />
+      {(effectiveRoutePoints.length >= 2 || plannerWeather || predictedIntensity || predictedCluster || weatherLoading || intensityLoading || clusterLoading) ? (
+        <div className="pointer-events-auto absolute right-4 top-24 z-20 w-[min(340px,calc(100vw-2rem))] rounded-[1.5rem] border border-[var(--border-translucent-half)] bg-[var(--glass-panel)] p-4 shadow-[0_24px_60px_var(--shadow-color)] backdrop-blur-[24px] sm:right-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Insights</p>
+              <p className="mt-1 text-sm text-[var(--text-subtle)]">{loadedPlanId ? workoutName : "Current draft route"}</p>
+            </div>
+            <div className="rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">
+              {plannedFor ? "Date set" : "Set date/time"}
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <PlannerMetricCard label="Distance" value={formatDistance(draftDistanceMeters, unitSystem)} />
+            <PlannerMetricCard label="Elevation Gain" value={formatElevation(elevationData?.elevation_gain_meters, unitSystem)} />
+            <PlannerMetricCard
+              label="Target Pace"
+              value={draftDistanceMeters > 0 && estimatedDurationSeconds > 0 ? formatPace(estimatedDurationSeconds / (draftDistanceMeters / 1609.344), unitSystem) : "Pending"}
+            />
+            <PlannerMetricCard
+              label="Finish Time"
+              value={plannedFor ? formatDateTime(new Date(new Date(plannedFor).getTime() + estimatedDurationSeconds * 1000).toISOString()) : "Select date/time"}
+            />
+            <PlannerMetricCard label="Target Pace" value={draftDistanceMeters > 0 && estimatedDurationSeconds > 0 ? formatPace(estimatedDurationSeconds / (draftDistanceMeters / 1609.344), unitSystem) : "Pending"} />
+            <PlannerMetricCard
+              label="Effort Score"
+              value={predictedIntensity ? `${Math.round(predictedIntensity.predicted_effort_score)} / 100` : intensityLoading ? "Loading..." : "Pending"}
+            />
+          </div>
+
+          {predictedIntensity ? (
+            <div className="mt-3">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--progress-track)]">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${predictedIntensity.predicted_effort_score}%`,
+                    backgroundColor: predictedIntensity.predicted_effort_score < 25 ? "#22c55e" : predictedIntensity.predicted_effort_score < 50 ? "#84cc16" : predictedIntensity.predicted_effort_score < 75 ? "#eab308" : predictedIntensity.predicted_effort_score < 90 ? "#f97316" : "#ef4444",
+                  }}
+                />
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+                <div>Range: {Math.round(predictedIntensity.confidence_interval_low)}–{Math.round(predictedIntensity.confidence_interval_high)}</div>
+                <div>{predictedIntensity.weather_adjusted ? "Weather-adjusted" : "No weather data"}</div>
               </div>
             </div>
           ) : null}
-          {!elevationLoading && !elevationChartSeries && elevationData ? (
-            <p className="text-sm text-[#5c564d]">Elevation data unavailable for this area.</p>
+
+          <div className="mt-3 border-t border-[var(--border-divider)] pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-label)]">Forecast</p>
+            {weatherLoading ? <p className="mt-2 text-sm text-[var(--text-muted)]">Loading forecast...</p> : null}
+            {!weatherLoading && !plannerWeather ? (
+              <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
+                {plannedFor
+                  ? "Save the route to fetch forecast data and refresh predictions."
+                  : "Select a planned date and time, then save the route to fetch forecast data."}
+              </p>
+            ) : null}
+            {!weatherLoading && plannerWeather ? (
+              <>
+                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+                  <div>Temp: {formatTemperature(plannerWeather.temperature_c, unitSystem)}</div>
+                  <div>Wind: {formatWind(plannerWeather.wind_speed_kmh, unitSystem)}</div>
+                  <div>Rain: {formatRain(plannerWeather.rain_mm, unitSystem)}</div>
+                  <div>Snow: {formatSnow(plannerWeather.snowfall_cm, unitSystem)}</div>
+                  <div>Forecast: {plannerWeather.forecast_time ? formatDateTime(plannerWeather.forecast_time) : "Nearest slot"}</div>
+                  <div>{plannerWeather.cached ? "Cached" : "Live"}</div>
+                </div>
+                {plannerWeather.wind_direction_deg != null ? (
+                  <div className="mt-3 flex items-center gap-3 rounded-[1rem] border border-[var(--border-secondary)] bg-[var(--glass-pill)] px-3 py-2 shadow-[0_10px_24px_var(--shadow-color)]">
+                    <WindCompass direction={plannerWeather.wind_direction_deg} />
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-label)]">Wind direction</p>
+                      <p className="text-sm font-semibold text-[var(--text-secondary)]">
+                        {formatCompassHeading(plannerWeather.wind_direction_deg)}
+                        {windRelationLabel ? ` • ${windRelationLabel}` : ""}
+                      </p>
+                      <p className="text-[11px] text-[var(--text-muted)]">
+                        {formatWind(plannerWeather.wind_speed_kmh, unitSystem)} ({Math.round(plannerWeather.wind_direction_deg)}°)
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+
+          <div className="mt-3 border-t border-[var(--border-divider)] pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-label)]">Workout Category</p>
+            {clusterLoading ? <p className="mt-2 text-sm text-[var(--text-muted)]">Refreshing category...</p> : null}
+            {!clusterLoading && predictedCluster ? (() => {
+              const LEVELS = ["Recovery", "Easy", "Moderate", "Hard", "Intense", "Extreme"] as const;
+              const COLORS: Record<string, { bar: string; text: string }> = {
+                Recovery:  { bar: "#22c55e", text: "#16a34a" },
+                Easy:      { bar: "#84cc16", text: "#65a30d" },
+                Moderate:  { bar: "#eab308", text: "#ca8a04" },
+                Hard:      { bar: "#f97316", text: "#ea580c" },
+                Intense:   { bar: "#ef4444", text: "#dc2626" },
+                Extreme:   { bar: "#dc2626", text: "#b91c1c" },
+              };
+              const activeIdx = LEVELS.indexOf(predictedCluster.cluster_label as typeof LEVELS[number]);
+              const { bar, text } = COLORS[predictedCluster.cluster_label] ?? { bar: "#94a3b8", text: "#64748b" };
+              return (
+                <>
+                  <p className="mt-2 text-sm font-semibold" style={{ color: text }}>{predictedCluster.cluster_label}</p>
+                  <div className="mt-2 flex gap-[3px]">
+                    {LEVELS.map((level, i) => (
+                      <div
+                        key={level}
+                        title={level}
+                        className="h-1.5 flex-1 rounded-full transition-opacity"
+                        style={{
+                          backgroundColor: COLORS[level].bar,
+                          opacity: i === activeIdx ? 1 : i < activeIdx ? 0.45 : 0.15,
+                          outline: i === activeIdx ? `2px solid ${bar}` : "none",
+                          outlineOffset: "1px",
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+                    Compared against {predictedCluster.n_activities_in_group} past {predictedCluster.activity_type_group} activities.
+                  </p>
+                </>
+              );
+            })() : null}
+            {!clusterLoading && !predictedCluster ? (
+              <p className="mt-2 text-sm text-[var(--text-muted)]">Save the route to refresh category guidance for this plan.</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {showPlannerChartPanel ? (
+        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2 rounded-[1.35rem] border border-[var(--border-divider)] bg-[var(--glass-panel)] px-4 py-3 shadow-[0_18px_40px_var(--shadow-color)] backdrop-blur-[24px]">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-label)]">Elevation Profile</p>
+              <p className="truncate text-xs text-[var(--text-subtle)]">{loadedPlanId ? workoutName : "Current draft route"}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setChartMinimized((v) => !v)}
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]"
+            >
+              {chartMinimized ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {chartMinimized ? "Expand" : "Minimize"}
+            </button>
+          </div>
+          {chartMinimized ? (
+            <div className="text-xs text-[var(--text-subtle)]">
+              {formatDistance(draftDistanceMeters, unitSystem)}
+              <span className="mx-2 text-[var(--text-very-faint)]">/</span>
+              {formatElevation(elevationData?.elevation_gain_meters, unitSystem)} gain
+            </div>
+          ) : null}
+          {!chartMinimized ? (
+            <>
+              {elevationLoading ? <p className="text-sm text-[var(--text-muted)]">Loading elevation data...</p> : null}
+              {!elevationLoading && elevationChartSeries ? (
+                <div className="grid gap-3">
+                  <ElevationChart
+                    series={elevationChartSeries}
+                    hoveredPointIndex={hoveredElevationPointIndex}
+                    onHoverChange={setHoveredElevationPointIndex}
+                    onHoverClear={() => setHoveredElevationPointIndex(null)}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <PlannerMetricCard label="Elevation Gain" value={formatElevation(elevationData?.elevation_gain_meters, unitSystem)} />
+                    <PlannerMetricCard label="Elevation Loss" value={formatElevation(elevationData?.elevation_loss_meters, unitSystem)} />
+                  </div>
+                </div>
+              ) : null}
+              {!elevationLoading && !elevationChartSeries && elevationData ? (
+                <p className="text-sm text-[var(--text-muted)]">Elevation data unavailable for this area.</p>
+              ) : null}
+              {!elevationLoading && !elevationData ? (
+                <p className="text-sm text-[var(--text-muted)]">Draw a route to load an elevation profile.</p>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}
@@ -1365,6 +1439,34 @@ function formatDateTime(value: string | null) {
   }).format(date);
 }
 
+function formatDuration(seconds: number | null) {
+  if (seconds == null || !Number.isFinite(seconds)) {
+    return "N/A";
+  }
+
+  const totalMinutes = Math.max(1, Math.round(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  return `${minutes}m`;
+}
+
+function estimatePlannerDurationSeconds(activityType: PlannedWorkoutType, distanceMeters: number) {
+  const paceSecondsPerKm: Record<string, number> = {
+    running: 360,
+    cycling: 150,
+    hiking: 600,
+    swimming: 150,
+    walking: 720,
+  };
+
+  return (distanceMeters / 1000) * (paceSecondsPerKm[activityType] ?? 360);
+}
+
 function toDateTimeLocalValue(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -1377,20 +1479,6 @@ function toDateTimeLocalValue(value: string) {
   const hours = `${date.getHours()}`.padStart(2, "0");
   const minutes = `${date.getMinutes()}`.padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-function formatSeconds(value: number | null) {
-  if (value == null || !Number.isFinite(value)) {
-    return "N/A";
-  }
-  return `${value.toFixed(1)} s`;
-}
-
-function formatPercent(value: number | null) {
-  if (value == null || !Number.isFinite(value)) {
-    return "N/A";
-  }
-  return `${Math.round(value)}%`;
 }
 
 function calculateRouteBearing(routePoints: PlannedWorkoutRoutePoint[]) {
@@ -1467,18 +1555,18 @@ function defaultPlannerName(activityType: PlannedWorkoutType) {
 
 function Chip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[rgba(216,208,194,0.48)] bg-[rgba(250,247,241,0.42)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[#595349] shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
-      <span className="text-[#5d7f8f]">{label}</span>
-      <span className="text-[#1d1a17]">{value}</span>
+    <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[var(--border-translucent-light)] bg-[var(--glass-panel)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)] shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
+      <span className="text-[var(--text-label)]">{label}</span>
+      <span className="text-[var(--text-secondary)]">{value}</span>
     </div>
   );
 }
 
 function PlannerMetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.15rem] border border-[#ddd5c8] bg-[#fbf8f2] p-3">
-      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">{label}</p>
-      <p className="mt-2 text-lg text-[#111111]">{value}</p>
+    <div className="rounded-[1.15rem] border border-[var(--border-solid)] bg-[var(--surface-secondary)] p-3">
+      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">{label}</p>
+      <p className="mt-2 text-lg text-[var(--text-primary)]">{value}</p>
     </div>
   );
 }
@@ -1486,13 +1574,13 @@ function PlannerMetricCard({ label, value }: { label: string; value: string }) {
 function WindCompass({ direction }: { direction: number }) {
   const normalized = (direction % 360 + 360) % 360;
   return (
-    <div className="relative flex h-12 w-12 items-center justify-center rounded-full border border-[#d7cec1] bg-white/90">
+    <div className="relative flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border-secondary)] bg-[var(--glass-panel-strong)]">
       <span
-        className="absolute h-10 w-0.5 rounded-sm bg-[#1B5E20]"
+        className="absolute h-10 w-0.5 rounded-sm bg-[var(--accent-green)]"
         style={{ transform: `rotate(${normalized}deg)` }}
       />
       <span
-        className="absolute top-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#1B5E20]"
+        className="absolute top-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--accent-green)]"
         style={{ transform: `rotate(${normalized}deg)` }}
       >
         ↥
@@ -1503,7 +1591,7 @@ function WindCompass({ direction }: { direction: number }) {
 
 function InlinePlannerMessage({ children }: { children: string }) {
   return (
-    <div className="rounded-[1.1rem] border border-rose-300/30 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+    <div className="rounded-[1.1rem] border border-rose-300/30 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-900/20 dark:text-rose-200">
       {children}
     </div>
   );
@@ -1517,8 +1605,8 @@ function PanelTab({ label, active, onClick }: { label: string; active: boolean; 
       className={cn(
         "rounded-full px-4 py-1.5 text-xs font-medium tracking-wide transition",
         active
-          ? "bg-[#1B5E20] text-white"
-          : "text-[#5c564d] hover:bg-white/60",
+          ? "bg-[var(--accent-green)] text-white"
+          : "text-[var(--text-muted)] hover:bg-[var(--glass-button)]",
       )}
     >
       {label}
@@ -1534,8 +1622,8 @@ function ActivityFilterPill({ label, active, onClick }: { label: string; active:
       className={cn(
         "rounded-full px-3 py-1 text-[11px] font-medium tracking-wide transition",
         active
-          ? "bg-[#1B5E20] text-white"
-          : "text-[#5c564d] hover:bg-white/60",
+          ? "bg-[var(--accent-green)] text-white"
+          : "text-[var(--text-muted)] hover:bg-[var(--glass-button)]",
       )}
     >
       {label}

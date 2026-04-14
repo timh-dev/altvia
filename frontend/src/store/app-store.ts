@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { DEFAULT_UNIT_SYSTEM, type UnitSystem } from "@/lib/units";
 
 export type AppPage = "landing" | "login" | "map" | "planner";
+export type UiScale = "normal" | "compact";
+export type ThemePreference = "light" | "dark" | "system";
 
 const pageToPath: Record<AppPage, string> = {
   landing: "/",
@@ -34,6 +36,10 @@ type AppStore = {
   logout: () => void;
   unitSystem: UnitSystem;
   setUnitSystem: (next: UnitSystem) => void;
+  uiScale: UiScale;
+  setUiScale: (next: UiScale) => void;
+  theme: ThemePreference;
+  setTheme: (next: ThemePreference) => void;
 };
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -93,5 +99,28 @@ export const useAppStore = create<AppStore>((set) => ({
       window.localStorage.setItem("unitSystem", next);
     }
     set({ unitSystem: next });
+  },
+  uiScale: (() => {
+    if (typeof window === "undefined") return "normal";
+    const stored = window.localStorage.getItem("uiScale");
+    return stored === "compact" ? "compact" : "normal";
+  })(),
+  setUiScale: (next) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("uiScale", next);
+    }
+    set({ uiScale: next });
+  },
+  theme: (() => {
+    if (typeof window === "undefined") return "system" as ThemePreference;
+    const stored = window.localStorage.getItem("theme");
+    if (stored === "light" || stored === "dark" || stored === "system") return stored;
+    return "system" as ThemePreference;
+  })(),
+  setTheme: (next) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("theme", next);
+    }
+    set({ theme: next });
   },
 }));

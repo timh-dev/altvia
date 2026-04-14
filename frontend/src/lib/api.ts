@@ -141,6 +141,7 @@ export type PlannedWorkoutSummary = {
   planned_for: string | null;
   distance_meters: number;
   route_points: PlannedWorkoutRoutePoint[];
+  analysis_context_json: PlannerSavedAnalysisContext | null;
   created_at: string;
 };
 
@@ -184,6 +185,27 @@ export type ElevationResponse = {
   elevations: (number | null)[];
   elevation_gain_meters: number;
   elevation_loss_meters: number;
+};
+
+export type PlannerAnalysisResponse = {
+  distance_meters: number;
+  estimated_duration_seconds: number;
+  avg_pace_seconds_per_mile: number | null;
+  predicted_completion_time: string | null;
+  elevation: ElevationResponse | null;
+  weather: PlannerWeatherSummary | null;
+  predicted_intensity: IntensityPredictionResponse | null;
+  predicted_cluster: ClusterPredictionResponse | null;
+};
+
+export type PlannerSavedAnalysisContext = {
+  estimated_duration_seconds: number | null;
+  avg_pace_seconds_per_mile: number | null;
+  predicted_completion_time: string | null;
+  elevation: ElevationResponse | null;
+  weather: PlannerWeatherSummary | null;
+  predicted_intensity: IntensityPredictionResponse | null;
+  predicted_cluster: ClusterPredictionResponse | null;
 };
 
 export type ActivityMapFeature = Feature<LineString | MultiLineString, ActivitySummary>;
@@ -287,6 +309,7 @@ export async function createPlannedWorkout(payload: {
   activity_type: string;
   planned_for: string | null;
   route_points: PlannedWorkoutRoutePoint[];
+  analysis_context_json?: PlannerSavedAnalysisContext | null;
 }) {
   const response = await fetch(`${API_BASE_URL}/api/planned-workouts/`, {
     method: "POST",
@@ -368,6 +391,27 @@ export async function fetchElevation(coordinates: PlannedWorkoutRoutePoint[]) {
   return response.json() as Promise<ElevationResponse>;
 }
 
+export async function analyzePlannerRoute(payload: {
+  activity_type: string;
+  route_points: PlannedWorkoutRoutePoint[];
+  planned_for: string | null;
+  duration_seconds?: number | null;
+}) {
+  const response = await fetch(`${API_BASE_URL}/api/planner/analyze`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to analyze planner route.");
+  }
+
+  return response.json() as Promise<PlannerAnalysisResponse>;
+}
+
 export async function uploadAppleHealthExport(file: File) {
   const formData = new FormData();
   formData.append("file", file);
@@ -434,6 +478,39 @@ export type IntensityPredictionResponse = {
   model_version: string;
   weather_adjusted: boolean;
 };
+
+export type ClusterPredictionRequest = {
+  activity_type: string;
+  duration_seconds: number;
+  distance_meters: number;
+  elevation_gain_meters?: number;
+};
+
+export type ClusterPredictionResponse = {
+  cluster_label: string;
+  cluster_id: number;
+  activity_type_group: string;
+  n_activities_in_group: number;
+  n_clusters: number;
+  features_used: string[];
+  model_version: string;
+};
+
+export async function predictWorkoutCluster(payload: ClusterPredictionRequest) {
+  const response = await fetch(`${API_BASE_URL}/api/clustering/predict`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to predict workout cluster.");
+  }
+
+  return response.json() as Promise<ClusterPredictionResponse>;
+}
 
 export async function predictWorkoutIntensity(payload: IntensityPredictionRequest) {
   const response = await fetch(`${API_BASE_URL}/api/intensity/predict`, {

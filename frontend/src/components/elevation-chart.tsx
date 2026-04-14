@@ -107,7 +107,7 @@ export function ElevationChart({
   const innerWidth = width - paddingX * 2;
   const innerHeight = height - paddingY * 2;
   const points = series.points;
-  const chartColor = "#8f5a1c";
+  const chartColor = "var(--chart-elevation)";
 
   const path = points
     .map((point, i) => {
@@ -143,7 +143,7 @@ export function ElevationChart({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-[1.2rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.3)] px-3 py-3">
+    <div className="relative overflow-hidden rounded-[1.2rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card-light)] px-3 py-3">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="h-40 w-full"
@@ -152,8 +152,8 @@ export function ElevationChart({
       >
         <defs>
           <linearGradient id="elevation-area-gradient" x1="0%" x2="0%" y1="0%" y2="100%">
-            <stop offset="0%" stopColor={chartColor} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={chartColor} stopOpacity="0.02" />
+            <stop offset="0%" style={{ stopColor: chartColor }} stopOpacity="0.18" />
+            <stop offset="100%" style={{ stopColor: chartColor }} stopOpacity="0.02" />
           </linearGradient>
         </defs>
         <line
@@ -161,11 +161,11 @@ export function ElevationChart({
           y1={paddingY + innerHeight}
           x2={paddingX + innerWidth}
           y2={paddingY + innerHeight}
-          stroke="rgba(92,86,77,0.22)"
+          style={{ stroke: "var(--chart-axis)" }}
           strokeWidth="1"
         />
         <path d={areaPath} fill="url(#elevation-area-gradient)" />
-        <path d={path} fill="none" stroke={chartColor} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={path} fill="none" style={{ stroke: chartColor }} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
         {hoveredX != null && hoveredY != null ? (
           <>
             <line
@@ -173,15 +173,15 @@ export function ElevationChart({
               y1={paddingY}
               x2={hoveredX}
               y2={paddingY + innerHeight}
-              stroke="rgba(29,26,23,0.14)"
+              style={{ stroke: "var(--chart-hover-line)" }}
               strokeWidth="1"
               strokeDasharray="4 4"
             />
-            <circle cx={hoveredX} cy={hoveredY} r="5.5" fill="#ffffff" stroke={chartColor} strokeWidth="2.5" />
+            <circle cx={hoveredX} cy={hoveredY} r="5.5" style={{ fill: "var(--chart-point-fill)", stroke: chartColor }} strokeWidth="2.5" />
           </>
         ) : null}
       </svg>
-      <div className="mt-2 flex items-center justify-between text-[11px] text-[#6a6358]">
+      <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-subtle)]">
         <span>{series.startLabel}</span>
         <span>
           {series.minLabel} to {series.maxLabel}

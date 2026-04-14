@@ -6,8 +6,10 @@ import {
   LogOut,
   Map as MapIcon,
   Menu,
+  Minus,
   Pause,
   Play,
+  Plus,
   Settings,
   User,
   X,
@@ -115,6 +117,8 @@ export function MapPage() {
   const logout = useAppStore((state) => state.logout);
   const openPlanner = useAppStore((state) => state.openPlanner);
   const unitSystem = useAppStore((state) => state.unitSystem);
+  const uiScale = useAppStore((state) => state.uiScale);
+  const isCompact = uiScale === "compact";
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [mapData, setMapData] = useState<ActivityMapFeatureCollection>(EMPTY_COLLECTION);
   const [overviewAnalytics, setOverviewAnalytics] = useState<ActivityAnalytics | null>(null);
@@ -276,8 +280,6 @@ export function MapPage() {
       zoom: 9,
       attributionControl: false,
     });
-
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
 
     map.on("load", () => {
       ensureWorkoutTerrainLayers(map);
@@ -994,26 +996,36 @@ export function MapPage() {
   }
 
   return (
-    <div className="relative h-screen overflow-hidden bg-[#f3efe7] text-[#111111]">
-      <div ref={mapContainerRef} className="absolute inset-0" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(79,195,247,0.12),transparent_24%),radial-gradient(circle_at_82%_16%,rgba(164,113,72,0.12),transparent_18%),linear-gradient(180deg,rgba(243,239,231,0.08)_0%,rgba(243,239,231,0.24)_100%)]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-52 bg-[linear-gradient(180deg,rgba(243,239,231,0.72),transparent)]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-64 bg-[linear-gradient(0deg,rgba(243,239,231,0.82),transparent)]" />
+    <div
+      className="relative overflow-hidden bg-[var(--surface-primary)] text-[var(--text-primary)]"
+      style={isCompact
+        ? { transform: "scale(0.8)", transformOrigin: "top left", width: "125vw", height: "125vh" }
+        : { height: "100vh" }
+      }
+    >
+      <div
+        ref={mapContainerRef}
+        className="absolute inset-0"
+        style={isCompact ? { transform: "scale(1.25)", transformOrigin: "top left", width: "80%", height: "80%" } : undefined}
+      />
+      <div className="pointer-events-none absolute inset-0 bg-[var(--map-gradient-overlay)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-52 bg-[var(--map-top-fade)]" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-64 bg-[var(--map-bottom-fade)]" />
 
       <div className="absolute left-4 right-4 top-4 z-30 flex flex-wrap items-start gap-3 sm:left-6 sm:right-6">
         <header className="shrink-0">
-          <div className="flex items-center justify-between gap-4 rounded-[1.35rem] border border-[rgba(217,209,197,0.52)] bg-[rgba(250,247,241,0.42)] px-4 py-2.5 shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
+          <div className="flex items-center justify-between gap-4 rounded-[1.35rem] border border-[var(--border-translucent-mid)] bg-[var(--glass-panel)] px-4 py-2.5 shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
           <div className="flex min-w-0 items-center gap-3">
             <Button
               variant="outline"
-              className="h-9 rounded-full border-[#d7cec1] bg-white/60 px-3 text-[#1d1a17] hover:bg-white hover:text-[#111111]"
+              className="h-9 rounded-full border-[var(--border-secondary)] bg-[var(--glass-button)] px-3 text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]"
               onClick={() => setPanelOpen((value) => !value)}
             >
               {panelOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </Button>
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-[#5d7f8f]">Altvia</p>
-              <p className="mt-0.5 text-xs text-[#49443d]">Personal Map</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--text-label)]">Altvia</p>
+              <p className="mt-0.5 text-xs text-[var(--text-section)]">Personal Map</p>
             </div>
           </div>
 
@@ -1021,19 +1033,19 @@ export function MapPage() {
             <button
               type="button"
               onClick={() => setProfileMenuOpen((value) => !value)}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-[#d7cec1] bg-white/60 px-3 text-[#1d1a17] transition hover:bg-white"
+              className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--glass-button)] px-3 text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
             >
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#1d1a17] text-white">
                 <User className="h-3.5 w-3.5" />
               </span>
-              <ChevronDown className={cn("h-4 w-4 text-[#6a6358] transition", profileMenuOpen ? "rotate-180" : "")} />
+              <ChevronDown className={cn("h-4 w-4 text-[var(--text-subtle)] transition", profileMenuOpen ? "rotate-180" : "")} />
             </button>
             {profileMenuOpen ? (
-              <div className="absolute right-0 top-full mt-2 w-44 rounded-[1rem] border border-[rgba(217,209,197,0.68)] bg-[rgba(250,247,241,0.96)] p-2 shadow-[0_18px_36px_rgba(17,17,17,0.12)] backdrop-blur-[20px]">
+              <div className="absolute right-0 top-full mt-2 w-44 rounded-[1rem] border border-[var(--border-translucent)] bg-[var(--glass-dropdown)] p-2 shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[20px]">
                 <button
                   type="button"
                   onClick={openPlanner}
-                  className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[#1d1a17] transition hover:bg-white"
+                  className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
                 >
                   <MapIcon className="h-4 w-4" />
                   Planner
@@ -1044,7 +1056,7 @@ export function MapPage() {
                     setSettingsOpen((value) => !value);
                     setProfileMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[#1d1a17] transition hover:bg-white"
+                  className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
                 >
                   <Settings className="h-4 w-4" />
                   Settings
@@ -1052,7 +1064,7 @@ export function MapPage() {
                 <button
                   type="button"
                   onClick={logout}
-                  className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[#1d1a17] transition hover:bg-white"
+                  className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
                 >
                   <LogOut className="h-4 w-4" />
                   Logout
@@ -1066,28 +1078,44 @@ export function MapPage() {
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
         <div className="flex flex-1 flex-wrap items-center gap-2 pt-1">
-          <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[rgba(216,208,194,0.48)] bg-[rgba(250,247,241,0.42)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[#595349] shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
+          <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[var(--border-translucent-light)] bg-[var(--glass-panel)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)] shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
             <span className="h-2 w-2 rounded-full bg-[#00BFFF]" />
             Workouts
-            <span className="text-[#9e9689]">/</span>
+            <span className="text-[var(--text-very-faint)]">/</span>
             <span>{mapData.features.length} route traces</span>
           </div>
-          <Chip label="Zoom" value={`${mapZoom.toFixed(1)}x`} />
+          <div className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-[var(--border-translucent-light)] bg-[var(--glass-panel)] px-1 py-1 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)] shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
+            <button
+              type="button"
+              onClick={() => mapRef.current?.zoomOut()}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <span className="min-w-[3rem] text-center text-[var(--text-secondary)]">{mapZoom.toFixed(1)}x</span>
+            <button
+              type="button"
+              onClick={() => mapRef.current?.zoomIn()}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-secondary)] transition hover:bg-[var(--surface-elevated)]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setTerrainEnabled((current) => !current)}
             className={cn(
-              "pointer-events-auto inline-flex h-9 items-center rounded-full border px-3 text-xs uppercase tracking-[0.18em] transition shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]",
+              "pointer-events-auto inline-flex h-9 items-center rounded-full border px-3 text-xs uppercase tracking-[0.18em] transition shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]",
               terrainEnabled
-                ? "border-[#1B5E20]/35 bg-[#1B5E20] text-white hover:bg-[#174b1a]"
-                : "border-[rgba(216,208,194,0.48)] bg-[rgba(250,247,241,0.42)] text-[#1d1a17] hover:bg-white/80",
+                ? "border-[var(--accent-green)]/35 bg-[var(--accent-green)] text-white hover:bg-[var(--accent-green-hover)]"
+                : "border-[var(--border-translucent-light)] bg-[var(--glass-panel)] text-[var(--text-secondary)] hover:bg-[var(--glass-pill)]",
             )}
           >
             3D Terrain
           </button>
-          <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[rgba(216,208,194,0.48)] bg-[rgba(250,247,241,0.42)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[#595349] shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
-            <span className="text-[#5d7f8f]">Active Layer</span>
-            <span className="text-[#1d1a17]">
+          <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[var(--border-translucent-light)] bg-[var(--glass-panel)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)] shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
+            <span className="text-[var(--text-label)]">Active Layer</span>
+            <span className="text-[var(--text-secondary)]">
               {selectedActivityType === ALL_ACTIVITY_TYPES
                 ? "All Workouts"
                 : selectedActivityType
@@ -1095,7 +1123,7 @@ export function MapPage() {
                   : "Awaiting Filter"}
             </span>
           </div>
-          <div className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-[rgba(216,208,194,0.48)] bg-[rgba(250,247,241,0.42)] p-1 text-[11px] uppercase tracking-[0.16em] text-[#595349] shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
+          <div className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-[var(--border-translucent-light)] bg-[var(--glass-panel)] p-1 text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)] shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
             <StyleModePill label="Recency" active={routeStyleMode === "recency"} onClick={() => setRouteStyleMode("recency")} />
             <StyleModePill label="Pace" active={routeStyleMode === "pace"} onClick={() => setRouteStyleMode("pace")} />
             <StyleModePill label="Elevation" active={routeStyleMode === "elevation"} onClick={() => setRouteStyleMode("elevation")} />
@@ -1106,23 +1134,23 @@ export function MapPage() {
 
       <aside
         className={cn(
-          "absolute bottom-4 left-4 top-24 z-20 w-[min(344px,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border border-[rgba(216,208,194,0.5)] bg-[rgba(250,247,241,0.4)] shadow-[0_24px_60px_rgba(17,17,17,0.08)] backdrop-blur-[24px] transition-transform duration-300 xl:w-[360px]",
+          "absolute bottom-4 left-4 top-24 z-20 w-[min(344px,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border border-[var(--border-translucent-half)] bg-[var(--glass-panel)] shadow-[0_24px_60px_var(--shadow-color)] backdrop-blur-[24px] transition-transform duration-300 xl:w-[360px]",
           panelOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]",
         )}
       >
         <div className="flex h-full flex-col">
-          <div className="border-b border-[#ddd5c8] px-5 py-5">
+          <div className="border-b border-[var(--border-solid)] px-5 py-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.26em] text-[#5d7f8f]">Library</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#111111]">Your terrain workspace</h2>
+                <p className="font-mono text-[10px] uppercase tracking-[0.26em] text-[var(--text-label)]">Library</p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--text-primary)]">Your terrain workspace</h2>
               </div>
-              <div className="rounded-full border border-[#ddd5c8] bg-white/70 px-3 py-1 text-xs text-[#766f63]">
+              <div className="rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1 text-xs text-[var(--text-subtle)]">
                 {activities.length} loaded
               </div>
             </div>
 
-            <div className="mt-5 flex rounded-full border border-[#ddd5c8] bg-[#ece6dd] p-1">
+            <div className="mt-5 flex rounded-full border border-[var(--border-solid)] bg-[var(--surface-tertiary)] p-1">
               <PanelTab
                 label="My Workouts"
                 active={activeTab === "mine"}
@@ -1145,13 +1173,13 @@ export function MapPage() {
             ) : (
               <div className="grid gap-5">
                 <section className="grid gap-3">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#7a7266]">Filters</p>
-                  <label className="grid gap-2 text-sm text-[#4f4941]">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Workout Type</span>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[var(--text-faint)]">Filters</p>
+                  <label className="grid gap-2 text-sm text-[var(--text-tertiary)]">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Workout Type</span>
                     <select
                       value={selectedActivityType ?? UNSELECTED_ACTIVITY_TYPE}
                       onChange={(event) => void handleActivityTypeChange(event)}
-                      className="h-11 rounded-[1rem] border border-[#d7cec1] bg-[#fbf8f2] px-4 text-sm text-[#111111] outline-none transition focus:border-[#00BFFF]/50"
+                      className="h-11 rounded-[1rem] border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-4 text-sm text-[var(--text-primary)] outline-none transition focus:border-[#00BFFF]/50"
                       disabled={filtersLoading || loading}
                     >
                       <option value={UNSELECTED_ACTIVITY_TYPE}>Select a workout type</option>
@@ -1165,11 +1193,11 @@ export function MapPage() {
                   </label>
 
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Timeline Metric</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Timeline Metric</span>
                     <select
                       value={timelineMetric}
                       onChange={(event) => setTimelineMetric(event.target.value as TimelineMetric)}
-                      className="h-9 rounded-full border border-[#d7cec1] bg-[#fbf8f2] px-3 text-xs uppercase tracking-[0.18em] text-[#4f4941] outline-none transition focus:border-[#00BFFF]/50"
+                      className="h-9 rounded-full border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-3 text-xs uppercase tracking-[0.18em] text-[var(--text-tertiary)] outline-none transition focus:border-[#00BFFF]/50"
                       disabled={!hasActiveTypeSelection || timelineDays.length === 0}
                     >
                       <option value="total_distance_meters">Distance</option>
@@ -1190,7 +1218,7 @@ export function MapPage() {
                       unitSystem={unitSystem}
                     />
                   ) : (
-                    <div className="rounded-[1.2rem] border border-dashed border-[#d7cec1] bg-[#fbf8f2] p-4 text-sm leading-6 text-[#6a6358]">
+                    <div className="rounded-[1.2rem] border border-dashed border-[var(--border-secondary)] bg-[var(--surface-secondary)] p-4 text-sm leading-6 text-[var(--text-subtle)]">
                       {filtersLoading
                         ? "Loading workout metadata."
                         : "Pick a workout type to load your training history."}
@@ -1198,8 +1226,8 @@ export function MapPage() {
                   )}
                 </section>
 
-                <section className="rounded-[1.5rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.34)] p-4 backdrop-blur-[18px]">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#7a7266]">
+                <section className="rounded-[1.5rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card)] p-4 backdrop-blur-[18px]">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[var(--text-faint)]">
                     {hasActiveTypeSelection ? "Selection Analytics" : "All Workout Analytics"}
                   </p>
                   {activeAnalytics ? (
@@ -1210,24 +1238,24 @@ export function MapPage() {
                         <AnalyticsCard label="Distance" value={formatDistance(activeAnalytics.total_distance_meters, unitSystem)} />
                         <AnalyticsCard label="Elevation" value={formatElevation(activeAnalytics.total_elevation_gain_meters, unitSystem)} />
                       </div>
-                      <div className="rounded-[1.2rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(251,248,242,0.55)] p-4 backdrop-blur-[16px]">
-                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Session Types</p>
+                      <div className="rounded-[1.2rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card)] p-4 backdrop-blur-[16px]">
+                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Session Types</p>
                         <div className="mt-3 grid gap-2">
                           {activeAnalytics.activity_types.length > 0 ? (
                             activeAnalytics.activity_types.slice(0, 5).map((item) => (
-                              <div key={item.activity_type} className="flex items-center justify-between text-sm text-[#4f4941]">
+                              <div key={item.activity_type} className="flex items-center justify-between text-sm text-[var(--text-tertiary)]">
                                 <span>{humanizeActivityType(item.activity_type)}</span>
                                 <span>{item.count}</span>
                               </div>
                             ))
                           ) : (
-                            <p className="text-sm text-[#5c564d]">No sessions parsed yet.</p>
+                            <p className="text-sm text-[var(--text-muted)]">No sessions parsed yet.</p>
                           )}
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <p className="mt-3 text-sm leading-6 text-[#5c564d]">
+                    <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">
                       Import your project Apple Health export to start building map and session analytics.
                     </p>
                   )}
@@ -1235,15 +1263,15 @@ export function MapPage() {
 
                 <section className="grid gap-3">
                   {hasActiveTypeSelection && activities.length > 0 ? (
-                    <div className="flex items-center justify-between gap-3 rounded-[1.2rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.34)] px-4 py-3 backdrop-blur-[16px]">
+                    <div className="flex items-center justify-between gap-3 rounded-[1.2rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card)] px-4 py-3 backdrop-blur-[16px]">
                       <div>
-                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">Sort Workouts</p>
-                        <p className="mt-1 text-xs text-[#6a6358]">Order the loaded workout list without changing the map.</p>
+                        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">Sort Workouts</p>
+                        <p className="mt-1 text-xs text-[var(--text-subtle)]">Order the loaded workout list without changing the map.</p>
                       </div>
                       <select
                         value={workoutSortMode}
                         onChange={(event) => setWorkoutSortMode(event.target.value as WorkoutSortMode)}
-                        className="h-9 rounded-full border border-[#d7cec1] bg-[#fbf8f2] px-3 text-xs uppercase tracking-[0.18em] text-[#4f4941] outline-none transition focus:border-[#00BFFF]/50"
+                        className="h-9 rounded-full border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-3 text-xs uppercase tracking-[0.18em] text-[var(--text-tertiary)] outline-none transition focus:border-[#00BFFF]/50"
                       >
                         <option value="date">Date</option>
                         <option value="distance">Distance</option>
@@ -1279,20 +1307,20 @@ export function MapPage() {
                             className={cn(
                               "rounded-[1.4rem] border p-4 text-left transition",
                               active
-                                ? "border-[#00BFFF]/40 bg-[#eaf7fd]"
-                                : "border-[#ddd5c8] bg-white/55 hover:border-[#cdc4b7] hover:bg-white/78",
+                                ? "border-[#00BFFF]/40 bg-[var(--status-selected-bg)]"
+                                : "border-[var(--border-solid)] bg-[var(--glass-card-light)] hover:border-[var(--border-secondary)] hover:bg-[var(--glass-pill)]",
                             )}
                           >
                             <div className="flex items-start justify-between gap-4">
                               <div>
-                                <p className="text-base font-medium text-[#111111]">{activity.name}</p>
-                                <p className="mt-1 text-sm text-[#70695e]">{formatDateTime(activity.started_at)}</p>
+                                <p className="text-base font-medium text-[var(--text-primary)]">{activity.name}</p>
+                                <p className="mt-1 text-sm text-[var(--text-page-secondary)]">{formatDateTime(activity.started_at)}</p>
                               </div>
-                              <div className="rounded-full border border-[#ddd5c8] bg-white/70 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[#70695e]">
+                              <div className="rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[var(--text-page-secondary)]">
                                 {hasRoute ? "Mapped" : "No route"}
                               </div>
                             </div>
-          <div className="mt-4 flex flex-wrap gap-2 text-xs text-[#5a5349]">
+          <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
                               <MetricPill label="Type" value={humanizeActivityType(activity.activity_type)} />
                               <MetricPill label="Distance" value={formatDistance(activity.distance_meters, unitSystem)} />
                               <MetricPill label="Duration" value={formatDuration(activity.duration_seconds)} />
@@ -1312,110 +1340,113 @@ export function MapPage() {
       </aside>
 
       {selectedMetricSeries ? (
-        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2 rounded-[1.35rem] border border-[rgba(221,213,200,0.5)] bg-[rgba(250,247,241,0.42)] px-4 py-3 shadow-[0_18px_40px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
+        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2 rounded-[1.35rem] border border-[var(--border-divider)] bg-[var(--glass-panel)] px-4 py-3 shadow-[0_18px_40px_var(--shadow-color)] backdrop-blur-[24px]">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#5d7f8f]">
+              <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-label)]">
                 {routeStyleModeLabel(routeStyleMode)} Trace
               </p>
-              <p className="truncate text-xs text-[#6a6358]">
+              <p className="truncate text-xs text-[var(--text-subtle)]">
                 {selectedActivity?.name ?? "Selected workout"}
               </p>
             </div>
             <button
               type="button"
               onClick={() => setChartMinimized((value) => !value)}
-              className="inline-flex items-center gap-2 rounded-full border border-[#ddd5c8] bg-white/70 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[#5f584d]"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]"
             >
               {chartMinimized ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               {chartMinimized ? "Expand" : "Minimize"}
             </button>
           </div>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-xs text-[#6a6358]">
-              {activeRoutePoint
-                ? `${formatTimeWithSeconds(activeRoutePoint.recorded_at)} • ${routeStyleModeLabel(routeStyleMode)} ${formatRouteMetricValue(
-                    activeMetricPoint?.rawValue ?? 0,
-                    routeStyleMode,
-                    unitSystem,
-                  )}`
-                : "Hover or click the trace to inspect a point in time."}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!selectedMetricSeries.points.length) {
-                    return;
-                  }
-                  setSelectedRoutePointIndex((current) => current ?? selectedMetricSeries.points[0].sourceIndex);
-                  setPlaybackActive((current) => !current);
-                }}
-                className="inline-flex items-center gap-2 rounded-full border border-[#ddd5c8] bg-white/70 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[#5f584d]"
-              >
-                {playbackActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                {playbackActive ? "Pause" : "Play"}
-              </button>
-              {selectedRoutePointIndex != null ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedRoutePointIndex(null);
-                    setPlaybackActive(false);
-                  }}
-                  className="inline-flex items-center rounded-full border border-[#ddd5c8] bg-white/70 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[#5f584d]"
-                >
-                  Clear
-                </button>
-              ) : null}
-            </div>
-          </div>
-          {activeRoutePoint ? (
-            <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#5c564d]">
-              <div>Pace: {formatPace(activeRoutePoint.pace_seconds_per_mile, unitSystem)}</div>
-            <div>Elevation: {formatElevation(activeRoutePoint.elevation_meters, unitSystem)}</div>
-              <div>Heart Rate: {formatHeartRate(activeRoutePoint.heart_rate_bpm)}</div>
-              <div>
-                Location: {formatCoordinate(activeRoutePoint.latitude)}, {formatCoordinate(activeRoutePoint.longitude)}
-              </div>
+          {chartMinimized ? (
+            <div className="text-xs text-[var(--text-subtle)]">
+              {selectedMetricSeries.startLabel} to {selectedMetricSeries.endLabel}
+              <span className="mx-2 text-[var(--text-very-faint)]">/</span>
+              {selectedMetricSeries.minLabel} to {selectedMetricSeries.maxLabel}
             </div>
           ) : null}
           {!chartMinimized ? (
-          <RouteMetricChart
-            series={selectedMetricSeries}
-            mode={routeStyleMode}
-            activeRoutePointIndex={activeRoutePointIndex}
-            onHoverChange={setHoveredRoutePointIndex}
-            onHoverClear={() => setHoveredRoutePointIndex(null)}
-            onPointSelect={(routePointIndex) => {
-              setSelectedRoutePointIndex(routePointIndex);
-              setPlaybackActive(false);
-            }}
-          />
-          ) : (
-            <div className="text-xs text-[#6a6358]">
-              {selectedMetricSeries.startLabel} to {selectedMetricSeries.endLabel}
-              <span className="mx-2 text-[#a0978b]">/</span>
-              {selectedMetricSeries.minLabel} to {selectedMetricSeries.maxLabel}
-            </div>
-          )}
+            <>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-[var(--text-subtle)]">
+                  {activeRoutePoint
+                    ? `${formatTimeWithSeconds(activeRoutePoint.recorded_at)} • ${routeStyleModeLabel(routeStyleMode)} ${formatRouteMetricValue(
+                        activeMetricPoint?.rawValue ?? 0,
+                        routeStyleMode,
+                        unitSystem,
+                      )}`
+                    : "Hover or click the trace to inspect a point in time."}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedMetricSeries.points.length) {
+                        return;
+                      }
+                      setSelectedRoutePointIndex((current) => current ?? selectedMetricSeries.points[0].sourceIndex);
+                      setPlaybackActive((current) => !current);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]"
+                  >
+                    {playbackActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                    {playbackActive ? "Pause" : "Play"}
+                  </button>
+                  {selectedRoutePointIndex != null ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedRoutePointIndex(null);
+                        setPlaybackActive(false);
+                      }}
+                      className="inline-flex items-center rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              {activeRoutePoint ? (
+                <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+                  <div>Pace: {formatPace(activeRoutePoint.pace_seconds_per_mile, unitSystem)}</div>
+                  <div>Elevation: {formatElevation(activeRoutePoint.elevation_meters, unitSystem)}</div>
+                  <div>Heart Rate: {formatHeartRate(activeRoutePoint.heart_rate_bpm)}</div>
+                  <div>
+                    Location: {formatCoordinate(activeRoutePoint.latitude)}, {formatCoordinate(activeRoutePoint.longitude)}
+                  </div>
+                </div>
+              ) : null}
+              <RouteMetricChart
+                series={selectedMetricSeries}
+                mode={routeStyleMode}
+                activeRoutePointIndex={activeRoutePointIndex}
+                onHoverChange={setHoveredRoutePointIndex}
+                onHoverClear={() => setHoveredRoutePointIndex(null)}
+                onPointSelect={(routePointIndex) => {
+                  setSelectedRoutePointIndex(routePointIndex);
+                  setPlaybackActive(false);
+                }}
+              />
+            </>
+          ) : null}
         </div>
       ) : null}
 
       {hasActiveTypeSelection ? (
-        <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex w-[min(360px,calc(100vw-2rem))] items-center justify-between gap-3 rounded-[1.35rem] border border-[rgba(221,213,200,0.5)] bg-[rgba(250,247,241,0.38)] px-4 py-3 shadow-[0_18px_40px_rgba(17,17,17,0.08)] backdrop-blur-[24px] sm:right-6">
+        <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex w-[min(360px,calc(100vw-2rem))] items-center justify-between gap-3 rounded-[1.35rem] border border-[var(--border-divider)] bg-[var(--glass-panel-medium)] px-4 py-3 shadow-[0_18px_40px_var(--shadow-color)] backdrop-blur-[24px] sm:right-6">
           <div className="min-w-0 flex-1">
-            <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#5d7f8f]">Map State</p>
-            <p className="mt-1 text-xs text-[#5c564d]">{mapStateSummary}</p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Map State</p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">{mapStateSummary}</p>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-2 text-[11px] text-[#6a6358]">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#ddd5c8] bg-white/70 px-2.5 py-1">
+          <div className="flex shrink-0 flex-col items-end gap-2 text-[11px] text-[var(--text-subtle)]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-2.5 py-1">
               <span>{routeStyleLegendStart(routeStyleMode)}</span>
               <span className="h-2 w-14 rounded-full" style={{ background: routeStyleLegendGradient(routeStyleMode) }} />
               <span>{routeStyleLegendEnd(routeStyleMode)}</span>
             </div>
             {routeStyleMode === "recency" ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-[#ddd5c8] bg-white/70 px-2.5 py-1">
+              <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-2.5 py-1">
                 <span className="h-2 w-2 rounded-full bg-[#D4A017]" />
                 Selected
               </span>
@@ -1424,18 +1455,18 @@ export function MapPage() {
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute right-4 top-[5.75rem] z-20 w-[min(280px,calc(100vw-2rem))] rounded-[1.35rem] border border-[rgba(221,213,200,0.5)] bg-[rgba(250,247,241,0.38)] p-4 shadow-[0_18px_40px_rgba(17,17,17,0.08)] backdrop-blur-[24px] sm:right-6">
-        <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#5d7f8f]">Inspector</p>
-        <p className="mt-2 text-lg font-semibold tracking-tight text-[#111111]">
+      <div className="pointer-events-none absolute right-4 top-[5.75rem] z-20 w-[min(280px,calc(100vw-2rem))] rounded-[1.35rem] border border-[var(--border-divider)] bg-[var(--glass-panel-medium)] p-4 shadow-[0_18px_40px_var(--shadow-color)] backdrop-blur-[24px] sm:right-6">
+        <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Inspector</p>
+        <p className="mt-2 text-lg font-semibold tracking-tight text-[var(--text-primary)]">
           {selectedActivity ? selectedActivity.name : "Your map is ready"}
         </p>
-        <p className="mt-1 text-xs leading-5 text-[#5c564d]">
+        <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
           {selectedActivity
             ? `${humanizeActivityType(selectedActivity.activity_type)} • ${formatDateTime(selectedActivity.started_at)}`
             : "Pick a workout type and date range to load the sessions you want to inspect."}
         </p>
         {selectedActivity ? (
-          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#5c564d]">
+          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
             <div>Distance: {formatDistance(selectedActivity.distance_meters, unitSystem)}</div>
             <div>Duration: {formatDuration(selectedActivity.duration_seconds)}</div>
             <div>Elevation Gain: {formatElevation(selectedActivity.elevation_gain_meters, unitSystem)}</div>
@@ -1468,9 +1499,9 @@ export function MapPage() {
           </div>
         ) : null}
         {selectedActivity?.weather_json ? (
-          <div className="mt-3 border-t border-[rgba(221,213,200,0.5)] pt-3">
-            <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#5d7f8f]">Weather</p>
-            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#5c564d]">
+          <div className="mt-3 border-t border-[var(--border-divider)] pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Weather</p>
+            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
               <div>{formatTemperature(selectedActivity.weather_json.temperature_c, unitSystem)}</div>
               <div>Wind: {formatWind(selectedActivity.weather_json.wind_speed_kmh, unitSystem)}{selectedActivity.weather_json.wind_direction_deg != null ? ` ${formatWindDirection(selectedActivity.weather_json.wind_direction_deg)}` : ""}</div>
               {selectedActivity.weather_json.rain_mm != null && selectedActivity.weather_json.rain_mm > 0 ? (
@@ -1496,16 +1527,16 @@ export function MapPage() {
           const score = es.effort_score;
           const color = score < 25 ? "#22c55e" : score < 50 ? "#84cc16" : score < 75 ? "#eab308" : score < 90 ? "#f97316" : "#ef4444";
           return (
-            <div className="mt-3 border-t border-[rgba(221,213,200,0.5)] pt-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#5d7f8f]">Effort</p>
+            <div className="mt-3 border-t border-[var(--border-divider)] pt-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Effort</p>
               <div className="mt-2 flex items-baseline gap-1.5">
                 <span className="text-2xl font-semibold" style={{ color }}>{Math.round(score)}</span>
-                <span className="text-xs text-[#5c564d]">/ 100</span>
+                <span className="text-xs text-[var(--text-muted)]">/ 100</span>
               </div>
-              <div className="mt-1.5 h-2 w-full rounded-full bg-[rgba(221,213,200,0.4)] overflow-hidden">
+              <div className="mt-1.5 h-2 w-full rounded-full bg-[var(--progress-track)] overflow-hidden">
                 <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: color }} />
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#5c564d]">
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
                 <div>TRIMP: {es.trimp.toFixed(1)}</div>
                 <div>HR Intensity: {Math.round(es.hr_intensity_ratio * 100)}%</div>
                 <div>Elev Factor: {es.elevation_factor.toFixed(2)}x</div>
@@ -1516,22 +1547,41 @@ export function MapPage() {
         })() : null}
         {selectedActivity?.workout_cluster_json ? (() => {
           const wc = selectedActivity.workout_cluster_json;
-          const labelColor = wc.cluster_label === "Easy" ? "#22c55e" : wc.cluster_label === "Moderate" ? "#3b82f6" : wc.cluster_label === "Hard" ? "#f97316" : "#ef4444";
+          const LEVELS = ["Recovery", "Easy", "Moderate", "Hard", "Intense", "Extreme"] as const;
+          const COLORS: Record<string, { bar: string; text: string }> = {
+            Recovery: { bar: "#22c55e", text: "#16a34a" },
+            Easy:     { bar: "#84cc16", text: "#65a30d" },
+            Moderate: { bar: "#eab308", text: "#ca8a04" },
+            Hard:     { bar: "#f97316", text: "#ea580c" },
+            Intense:  { bar: "#ef4444", text: "#dc2626" },
+            Extreme:  { bar: "#dc2626", text: "#b91c1c" },
+          };
+          const activeIdx = LEVELS.indexOf(wc.cluster_label as typeof LEVELS[number]);
+          const { bar, text } = COLORS[wc.cluster_label] ?? { bar: "#94a3b8", text: "#64748b" };
           return (
-            <div className="mt-3 border-t border-[rgba(221,213,200,0.5)] pt-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#5d7f8f]">Workout Cluster</p>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: labelColor }}>{wc.cluster_label}</span>
-                <span className="text-xs text-[#5c564d]">of {wc.n_activities_in_group} {wc.activity_type_group} workouts</span>
+            <div className="mt-3 border-t border-[var(--border-divider)] pt-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Workout Cluster</p>
+              <p className="mt-2 text-sm font-semibold" style={{ color: text }}>{wc.cluster_label}</p>
+              <div className="mt-2 flex gap-[3px]">
+                {LEVELS.map((level, i) => (
+                  <div
+                    key={level}
+                    title={level}
+                    className="h-1.5 flex-1 rounded-full"
+                    style={{
+                      backgroundColor: COLORS[level].bar,
+                      opacity: i === activeIdx ? 1 : i < activeIdx ? 0.45 : 0.15,
+                      outline: i === activeIdx ? `2px solid ${bar}` : "none",
+                      outlineOffset: "1px",
+                    }}
+                  />
+                ))}
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#5c564d]">
-                <div>Cluster: {wc.cluster_id + 1} of {wc.n_clusters}</div>
-                <div>Features: {wc.features_used.length}</div>
-              </div>
+              <p className="mt-1.5 text-xs text-[var(--text-muted)]">of {wc.n_activities_in_group} {wc.activity_type_group} workouts</p>
             </div>
           );
         })() : null}
-        {selectedActivity?.predicted_intensity_json ? (() => {
+        {selectedActivity?.predicted_intensity_json && !selectedActivity?.effort_score_json ? (() => {
           const pi = selectedActivity.predicted_intensity_json;
           const predicted = pi.predicted_effort_score;
           const actual = selectedActivity.effort_score_json?.effort_score ?? null;
@@ -1539,21 +1589,21 @@ export function MapPage() {
           const diffColor = diff !== null ? (diff < 10 ? "#22c55e" : diff < 20 ? "#eab308" : "#ef4444") : null;
           const predColor = predicted < 25 ? "#22c55e" : predicted < 50 ? "#84cc16" : predicted < 75 ? "#eab308" : predicted < 90 ? "#f97316" : "#ef4444";
           return (
-            <div className="mt-3 border-t border-[rgba(221,213,200,0.5)] pt-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[#5d7f8f]">Predicted Effort</p>
+            <div className="mt-3 border-t border-[var(--border-divider)] pt-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Predicted Effort</p>
               <div className="mt-2 flex items-baseline gap-1.5">
                 <span className="text-2xl font-semibold" style={{ color: predColor }}>{Math.round(predicted)}</span>
-                <span className="text-xs text-[#5c564d]">/ 100</span>
+                <span className="text-xs text-[var(--text-muted)]">/ 100</span>
                 {actual !== null ? (
                   <span className="ml-2 text-xs" style={{ color: diffColor! }}>
                     ({diff! < 1 ? "exact" : `${diff! > 0 && predicted > actual ? "+" : ""}${Math.round(predicted - actual)} vs actual`})
                   </span>
                 ) : null}
               </div>
-              <div className="mt-1.5 h-2 w-full rounded-full bg-[rgba(221,213,200,0.4)] overflow-hidden">
+              <div className="mt-1.5 h-2 w-full rounded-full bg-[var(--progress-track)] overflow-hidden">
                 <div className="h-full rounded-full transition-all" style={{ width: `${predicted}%`, backgroundColor: predColor }} />
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#5c564d]">
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
                 <div>Range: {Math.round(pi.confidence_interval_low)}–{Math.round(pi.confidence_interval_high)}</div>
                 <div>{pi.weather_adjusted ? "Weather-adjusted" : "No weather data"}</div>
               </div>
@@ -1624,10 +1674,10 @@ function DateHistogramSlider({
   const selEndX = barCount > 0 ? ((pendingRange[1] + 1) / barCount) * svgWidth : svgWidth;
 
   return (
-    <div className="pointer-events-auto relative overflow-hidden rounded-[1.2rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.3)] px-3 py-3">
+    <div className="pointer-events-auto relative overflow-hidden rounded-[1.2rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card-light)] px-3 py-3">
       <div className="relative">
         <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="h-28 w-full">
-          <line x1="0" y1={svgHeight} x2={svgWidth} y2={svgHeight} stroke="rgba(92,86,77,0.22)" strokeWidth="1" />
+          <line x1="0" y1={svgHeight} x2={svgWidth} y2={svgHeight} style={{ stroke: "var(--chart-axis)" }} strokeWidth="1" />
           <rect x={selStartX} width={Math.max(selEndX - selStartX, 0)} y="0" height={svgHeight} fill="rgba(196,122,42,0.06)" />
           {days.map((day, index) => {
             const rawValue = day[metric];
@@ -1677,9 +1727,9 @@ function DateHistogramSlider({
           className="timeline-slider pointer-events-auto absolute inset-0 h-full w-full cursor-pointer bg-transparent"
         />
       </div>
-      <div className="mt-2 flex items-center justify-between text-[11px] text-[#6a6358]">
+      <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-subtle)]">
         <span>{formatDateShort(days[0]?.date ?? null)}</span>
-        <span className="text-[10px] text-[#9a9083]">
+        <span className="text-[10px] text-[var(--text-very-faint)]">
           {formatDateShort(days[pendingRange[0]]?.date ?? null)} – {formatDateShort(days[pendingRange[1]]?.date ?? null)}
         </span>
         <span>{formatDateShort(days[days.length - 1]?.date ?? null)}</span>
@@ -1695,7 +1745,7 @@ function PanelTab({ label, active, onClick }: { label: string; active: boolean; 
       onClick={onClick}
       className={cn(
         "flex-1 rounded-full px-4 py-2 text-xs uppercase tracking-[0.2em] transition",
-        active ? "bg-[#1B5E20] text-white" : "text-[#6a6358] hover:bg-white/70 hover:text-[#111111]",
+        active ? "bg-[var(--accent-green)] text-white" : "text-[var(--text-subtle)] hover:bg-[var(--glass-pill)] hover:text-[var(--text-primary)]",
       )}
     >
       {label}
@@ -1710,7 +1760,7 @@ function StyleModePill({ label, active, onClick }: { label: string; active: bool
       onClick={onClick}
       className={cn(
         "rounded-full px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] transition",
-        active ? "bg-[#1d1a17] text-white" : "text-[#5f584d] hover:bg-white/70 hover:text-[#111111]",
+        active ? "bg-[#1d1a17] text-white" : "text-[var(--text-muted)] hover:bg-[var(--glass-pill)] hover:text-[var(--text-primary)]",
       )}
     >
       {label}
@@ -1722,9 +1772,9 @@ function SessionListSkeleton() {
   return (
     <div className="grid gap-3">
       {Array.from({ length: 4 }).map((_, index) => (
-        <div key={index} className="rounded-[1.4rem] border border-[#ddd5c8] bg-white/60 p-4">
-          <div className="h-5 w-40 animate-pulse rounded-full bg-[#dcd4c7]" />
-          <div className="mt-3 h-4 w-52 animate-pulse rounded-full bg-[#ebe4d8]" />
+        <div key={index} className="rounded-[1.4rem] border border-[var(--border-solid)] bg-[var(--glass-button)] p-4">
+          <div className="h-5 w-40 animate-pulse rounded-full bg-[var(--skeleton-base)]" />
+          <div className="mt-3 h-4 w-52 animate-pulse rounded-full bg-[var(--skeleton-light)]" />
         </div>
       ))}
     </div>
@@ -1737,8 +1787,8 @@ function InlineMessage({ children, tone }: { children: ReactNode; tone: "error" 
       className={cn(
         "mt-4 rounded-[1.1rem] border px-4 py-3 text-sm",
         tone === "error"
-          ? "border-rose-300/30 bg-rose-50 text-rose-900"
-          : "border-emerald-300/30 bg-emerald-50 text-emerald-900",
+          ? "border-rose-300/30 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-900/20 dark:text-rose-200"
+          : "border-emerald-300/30 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-900/20 dark:text-emerald-200",
       )}
     >
       {children}
@@ -1748,16 +1798,16 @@ function InlineMessage({ children, tone }: { children: ReactNode; tone: "error" 
 
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-[1.4rem] border border-[#ddd5c8] bg-white/60 p-5">
-      <p className="text-lg font-medium text-[#111111]">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-[#5c564d]">{body}</p>
+    <div className="rounded-[1.4rem] border border-[var(--border-solid)] bg-[var(--glass-button)] p-5">
+      <p className="text-lg font-medium text-[var(--text-primary)]">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">{body}</p>
     </div>
   );
 }
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <span className="rounded-full border border-[#ddd5c8] bg-white/70 px-3 py-1 text-[#5a5349]">
+    <span className="rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1 text-[var(--text-muted)]">
       {label}: {value}
     </span>
   );
@@ -1765,9 +1815,9 @@ function MetricPill({ label, value }: { label: string; value: string }) {
 
 function AnalyticsCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.15rem] border border-[#ddd5c8] bg-[#fbf8f2] p-3">
-      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#7a7266]">{label}</p>
-      <p className="mt-2 text-lg text-[#111111]">{value}</p>
+    <div className="rounded-[1.15rem] border border-[var(--border-solid)] bg-[var(--surface-secondary)] p-3">
+      <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-faint)]">{label}</p>
+      <p className="mt-2 text-lg text-[var(--text-primary)]">{value}</p>
     </div>
   );
 }
@@ -1804,8 +1854,8 @@ function RouteMetricChart({
     .join(" ");
 
   const areaPath = `${path} L ${(paddingX + innerWidth).toFixed(2)} ${(paddingY + innerHeight).toFixed(2)} L ${paddingX.toFixed(2)} ${(paddingY + innerHeight).toFixed(2)} Z`;
-  const chartStroke = mode === "heart_rate" ? "#b42318" : mode === "pace" ? "#1f6aa5" : "#8f5a1c";
-  const chartArea = mode === "heart_rate" ? "#b42318" : mode === "pace" ? "#1f6aa5" : "#8f5a1c";
+  const chartStroke = mode === "heart_rate" ? "var(--chart-heart-rate)" : mode === "pace" ? "var(--chart-pace)" : "var(--chart-elevation)";
+  const chartArea = mode === "heart_rate" ? "var(--chart-heart-rate)" : mode === "pace" ? "var(--chart-pace)" : "var(--chart-elevation)";
   const hoveredPoint = points.find((point) => point.sourceIndex === activeRoutePointIndex) ?? null;
   const hoveredX = hoveredPoint ? paddingX + hoveredPoint.position * innerWidth : null;
   const hoveredY = hoveredPoint ? paddingY + (1 - hoveredPoint.normalizedValue) * innerHeight : null;
@@ -1851,7 +1901,7 @@ function RouteMetricChart({
   }
 
   return (
-    <div className="pointer-events-auto relative overflow-hidden rounded-[1.2rem] border border-[rgba(221,213,200,0.55)] bg-[rgba(255,255,255,0.3)] px-3 py-3">
+    <div className="pointer-events-auto relative overflow-hidden rounded-[1.2rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card-light)] px-3 py-3">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="h-40 w-full"
@@ -1861,21 +1911,21 @@ function RouteMetricChart({
         >
           <defs>
             <linearGradient id="route-metric-area" x1="0%" x2="0%" y1="0%" y2="100%">
-              <stop offset="0%" stopColor={chartArea} stopOpacity="0.18" />
-              <stop offset="100%" stopColor={chartArea} stopOpacity="0.02" />
+              <stop offset="0%" style={{ stopColor: chartArea }} stopOpacity="0.18" />
+              <stop offset="100%" style={{ stopColor: chartArea }} stopOpacity="0.02" />
             </linearGradient>
           </defs>
-          <line x1={paddingX} y1={paddingY + innerHeight} x2={paddingX + innerWidth} y2={paddingY + innerHeight} stroke="rgba(92,86,77,0.22)" strokeWidth="1" />
+          <line x1={paddingX} y1={paddingY + innerHeight} x2={paddingX + innerWidth} y2={paddingY + innerHeight} style={{ stroke: "var(--chart-axis)" }} strokeWidth="1" />
           <path d={areaPath} fill="url(#route-metric-area)" />
-          <path d={path} fill="none" stroke={chartStroke} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={path} fill="none" style={{ stroke: chartStroke }} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
           {hoveredX != null && hoveredY != null ? (
             <>
-              <line x1={hoveredX} y1={paddingY} x2={hoveredX} y2={paddingY + innerHeight} stroke="rgba(29,26,23,0.14)" strokeWidth="1" strokeDasharray="4 4" />
-              <circle cx={hoveredX} cy={hoveredY} r="5.5" fill="#ffffff" stroke={chartStroke} strokeWidth="2.5" />
+              <line x1={hoveredX} y1={paddingY} x2={hoveredX} y2={paddingY + innerHeight} style={{ stroke: "var(--chart-hover-line)" }} strokeWidth="1" strokeDasharray="4 4" />
+              <circle cx={hoveredX} cy={hoveredY} r="5.5" style={{ fill: "var(--chart-point-fill)", stroke: chartStroke }} strokeWidth="2.5" />
             </>
           ) : null}
         </svg>
-        <div className="mt-2 flex items-center justify-between text-[11px] text-[#6a6358]">
+        <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-subtle)]">
           <span>{series.startLabel}</span>
           <span>
             {series.minLabel} to {series.maxLabel}
@@ -2594,12 +2644,11 @@ function formatMetricValue(value: number, metric: TimelineMetric, unitSystem: Un
   }
 }
 
-
 function Chip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[rgba(216,208,194,0.48)] bg-[rgba(250,247,241,0.42)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[#595349] shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
-      <span className="text-[#5d7f8f]">{label}</span>
-      <span className="text-[#1d1a17]">{value}</span>
+    <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-[var(--border-translucent-light)] bg-[var(--glass-panel)] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)] shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
+      <span className="text-[var(--text-label)]">{label}</span>
+      <span className="text-[var(--text-secondary)]">{value}</span>
     </div>
   );
 }

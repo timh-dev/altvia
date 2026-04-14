@@ -161,11 +161,11 @@ export function PlaceSearch({ onPlaceSelected }: PlaceSearchProps) {
 
   return (
     <div ref={containerRef} className="pointer-events-auto relative">
-      <div className="flex items-center gap-1.5 rounded-full border border-[rgba(216,208,194,0.48)] bg-[rgba(250,247,241,0.42)] px-3 py-2 shadow-[0_18px_36px_rgba(17,17,17,0.08)] backdrop-blur-[24px]">
+      <div className="flex items-center gap-1.5 rounded-full border border-[var(--border-translucent-light)] bg-[var(--glass-panel)] px-3 py-2 shadow-[0_18px_36px_var(--shadow-color)] backdrop-blur-[24px]">
         {loading ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#5d7f8f]" />
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--text-label)]" />
         ) : (
-          <Search className="h-3.5 w-3.5 shrink-0 text-[#5d7f8f]" />
+          <Search className="h-3.5 w-3.5 shrink-0 text-[var(--text-label)]" />
         )}
         <input
           ref={inputRef}
@@ -175,17 +175,17 @@ export function PlaceSearch({ onPlaceSelected }: PlaceSearchProps) {
           onKeyDown={handleKeyDown}
           onFocus={handleFocus}
           placeholder="Search places"
-          className="w-24 bg-transparent text-[11px] uppercase tracking-[0.18em] text-[#1d1a17] placeholder-[#9a9287] outline-none sm:w-36"
+          className="w-24 bg-transparent text-[11px] uppercase tracking-[0.18em] text-[var(--text-secondary)] placeholder-[var(--text-very-faint)] outline-none sm:w-36"
         />
         {query.length > 0 ? (
-          <button type="button" onClick={handleClear} className="shrink-0 text-[#9a9287] transition hover:text-[#1d1a17]">
+          <button type="button" onClick={handleClear} className="shrink-0 text-[var(--text-very-faint)] transition hover:text-[var(--text-secondary)]">
             <X className="h-3.5 w-3.5" />
           </button>
         ) : null}
       </div>
 
       {open ? (
-        <div className="absolute left-0 top-full z-50 mt-2 w-[min(400px,calc(100vw-3rem))] rounded-[1rem] border border-[rgba(217,209,197,0.68)] bg-[rgba(250,247,241,0.96)] p-2 shadow-[0_18px_36px_rgba(17,17,17,0.12)] backdrop-blur-[20px]">
+        <div className="absolute left-0 top-full z-50 mt-2 w-[min(400px,calc(100vw-3rem))] rounded-[1rem] border border-[var(--border-translucent)] bg-[var(--glass-dropdown)] p-2 shadow-[0_18px_36px_var(--shadow-medium)] backdrop-blur-[20px]">
           {results.length > 0 ? (
             results.map((place, index) => {
               const { primary, secondary } = parseName(place.displayName);
@@ -197,18 +197,18 @@ export function PlaceSearch({ onPlaceSelected }: PlaceSearchProps) {
                   onPointerEnter={() => setHighlightIndex(index)}
                   className={cn(
                     "flex w-full flex-col rounded-[0.8rem] px-3 py-2 text-left transition",
-                    index === highlightIndex ? "bg-white" : "hover:bg-white/60",
+                    index === highlightIndex ? "bg-[var(--surface-elevated)]" : "hover:bg-[var(--glass-button)]",
                   )}
                 >
-                  <span className="text-sm font-medium text-[#1d1a17]">{primary}</span>
+                  <span className="text-sm font-medium text-[var(--text-secondary)]">{primary}</span>
                   {secondary ? (
-                    <span className="truncate text-xs text-[#7a7266]">{secondary}</span>
+                    <span className="truncate text-xs text-[var(--text-faint)]">{secondary}</span>
                   ) : null}
                 </button>
               );
             })
           ) : query.length >= 3 ? (
-            <p className="px-3 py-2 text-xs text-[#7a7266]">No places found</p>
+            <p className="px-3 py-2 text-xs text-[var(--text-faint)]">No places found</p>
           ) : null}
         </div>
       ) : null}
