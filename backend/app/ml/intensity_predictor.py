@@ -42,6 +42,8 @@ TRIMP_UPPER_BOUND = 300.0
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATH = BACKEND_DIR / "data" / "intensity_model.joblib"
+_CACHED_BUNDLE = None
+_CACHED_MTIME_NS: int | None = None
 
 
 def _compute_effort_score(
@@ -156,8 +158,6 @@ def load_strava_csv(path: Path) -> pd.DataFrame:
     })
 
     return result.reset_index(drop=True)
-
-
 def prepare_personal_data(activities: list[Activity]) -> pd.DataFrame:
     """Extract features from personal activities that have effort_score_json."""
     rows = []
@@ -261,7 +261,18 @@ def save_model_bundle(bundle: IntensityModelBundle, path: Path | None = None) ->
 
 def load_model_bundle(path: Path | None = None) -> IntensityModelBundle | None:
     """Load persisted model bundle. Returns None if not found."""
+    global _CACHED_BUNDLE, _CACHED_MTIME_NS
+
     path = path or MODEL_PATH
     if not path.exists():
+        _CACHED_BUNDLE = None
+        _CACHED_MTIME_NS = None
         return None
-    return joblib.load(path)
+
+    mtime_ns = path.stat().st_mtime_ns
+    if _CACHED_BUNDLE is not None and _CACHED_MTIME_NS == mtime_ns:
+        return _CACHED_BUNDLE
+
+    _CACHED_BUNDLE = joblib.load(path)
+    _CACHED_MTIME_NS = mtime_ns
+    return _CACHED_BUNDLE
