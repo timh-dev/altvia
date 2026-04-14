@@ -49,4 +49,10 @@ backend/.dagster_home/
 
 # Local data
 postgres_data/
-backend/data/imports/
+backend/data/*
+
+# Images
+images/*
+
+# Notebooks
+notebooks/*
