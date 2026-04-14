@@ -1,3 +1,5 @@
+import math
+
 from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -6,17 +8,18 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
+from app.ml.clustering_predictor import ActivityTypeClusterModel, ClusteringModelBundle
 from app.models.activity import Activity
 
 MIN_ACTIVITIES_PER_TYPE = 8
-DEFAULT_N_CLUSTERS = 4
-CLUSTER_LABELS = ["Easy", "Moderate", "Hard", "Extreme"]
+DEFAULT_N_CLUSTERS = 6
+CLUSTER_LABELS = ["Recovery", "Easy", "Moderate", "Hard", "Intense", "Extreme"]
 
 FEATURE_WEIGHTS = {
-    "duration_seconds": 0.2,
-    "distance_meters": 0.2,
-    "avg_pace": -0.3,
-    "average_heart_rate_bpm": 0.3,
+    "duration_seconds": 0.1,
+    "distance_meters": 0.1,
+    "avg_pace": -0.2,
+    "average_heart_rate_bpm": 0.5,
     "elevation_gain_meters": 0.1,
 }
 
@@ -29,7 +32,7 @@ class WorkoutClusterResult:
     features_used: list[str]
     n_clusters: int
     n_activities_in_group: int
-    version: str = "v1"
+    version: str = "v2"
 
     def to_dict(self) -> dict:
         return {
@@ -43,7 +46,7 @@ class WorkoutClusterResult:
         }
 
 
-def _extract_features(activities: list[Activity]) -> tuple[np.ndarray, list[str]]:
+def _extract_features(activities: list[Activity]) -> tuple[np.ndarray, list[str], float]:
     feature_names = ["duration_seconds", "distance_meters", "elevation_gain_meters", "avg_pace"]
 
     hr_values = [a.average_heart_rate_bpm for a in activities if a.average_heart_rate_bpm is not None]
@@ -67,27 +70,60 @@ def _extract_features(activities: list[Activity]) -> tuple[np.ndarray, list[str]
 
         rows.append(row)
 
-    return np.array(rows, dtype=np.float64), feature_names
+    return np.array(rows, dtype=np.float64), feature_names, hr_median
 
 
-def _assign_labels(kmeans: KMeans, feature_names: list[str]) -> list[str]:
-    centroids = kmeans.cluster_centers_
-    k = centroids.shape[0]
+def _compute_trimp(activity: Activity) -> float | None:
+    """Compute TRIMP directly from activity fields, independent of stored effort_score_json."""
+    avg_hr = activity.average_heart_rate_bpm
+    max_hr = activity.max_heart_rate_bpm
+    duration_s = activity.duration_seconds
+    if not avg_hr or not max_hr or not duration_s or max_hr <= 0:
+        return None
+    avg_hr = min(avg_hr, max_hr)
+    hr_ratio = avg_hr / max_hr
+    trimp = (duration_s / 60.0) * hr_ratio * 0.64 * math.exp(1.92 * hr_ratio)
+    elevation = activity.elevation_gain_meters or 0.0
+    return trimp * (1.0 + (elevation / 1000.0) * 0.3)
 
-    scores: list[float] = []
-    for centroid in centroids:
-        score = 0.0
-        for i, name in enumerate(feature_names):
-            weight = FEATURE_WEIGHTS.get(name, 0.0)
-            score += weight * centroid[i]
-        scores.append(score)
 
-    sorted_indices = sorted(range(k), key=lambda i: scores[i])
+def _cluster_effort_medians(activities: list[Activity], labels: np.ndarray, k: int) -> list[float | None]:
+    """Return median TRIMP per cluster, or None if a cluster lacks coverage."""
+    buckets: dict[int, list[float]] = {i: [] for i in range(k)}
+    for activity, cluster_id in zip(activities, labels):
+        trimp = _compute_trimp(activity)
+        if trimp is not None:
+            buckets[int(cluster_id)].append(trimp)
+    return [float(np.median(v)) if v else None for v in buckets.values()]
+
+
+def _assign_labels(kmeans: KMeans, feature_names: list[str], cluster_effort_medians: list[float | None]) -> list[str]:
+    k = kmeans.cluster_centers_.shape[0]
+
+    # Prefer effort-score-based ranking if we have coverage for most clusters
+    valid = [(i, m) for i, m in enumerate(cluster_effort_medians) if m is not None]
+    if len(valid) >= k * 0.75:
+        sorted_indices = [i for i, _ in sorted(valid, key=lambda x: x[1])]
+        # Any clusters missing effort scores get appended at the end (treated as highest intensity)
+        missing = [i for i in range(k) if i not in [x[0] for x in valid]]
+        sorted_indices += missing
+    else:
+        # Fallback: rank by weighted centroid score
+        centroids = kmeans.cluster_centers_
+        scores = [
+            sum(FEATURE_WEIGHTS.get(name, 0.0) * centroids[i][j] for j, name in enumerate(feature_names))
+            for i in range(k)
+        ]
+        sorted_indices = sorted(range(k), key=lambda i: scores[i])
 
     if k == 2:
         label_set = ["Easy", "Hard"]
     elif k == 3:
         label_set = ["Easy", "Moderate", "Hard"]
+    elif k == 4:
+        label_set = ["Easy", "Moderate", "Hard", "Extreme"]
+    elif k == 5:
+        label_set = ["Recovery", "Easy", "Moderate", "Hard", "Extreme"]
     else:
         label_set = CLUSTER_LABELS[:k]
 
@@ -98,7 +134,7 @@ def _assign_labels(kmeans: KMeans, feature_names: list[str]) -> list[str]:
     return label_map
 
 
-def cluster_activities(activities: list[Activity]) -> dict[UUID, WorkoutClusterResult]:
+def cluster_activities(activities: list[Activity]) -> tuple[dict[UUID, WorkoutClusterResult], ClusteringModelBundle]:
     groups: dict[str, list[Activity]] = defaultdict(list)
     for a in activities:
         if (a.duration_seconds is not None and a.duration_seconds > 0
@@ -106,12 +142,13 @@ def cluster_activities(activities: list[Activity]) -> dict[UUID, WorkoutClusterR
             groups[a.activity_type].append(a)
 
     results: dict[UUID, WorkoutClusterResult] = {}
+    bundle = ClusteringModelBundle()
 
     for activity_type, group in groups.items():
         if len(group) < MIN_ACTIVITIES_PER_TYPE:
             continue
 
-        features, feature_names = _extract_features(group)
+        features, feature_names, hr_median = _extract_features(group)
 
         scaler = StandardScaler()
         scaled = scaler.fit_transform(features)
@@ -120,7 +157,16 @@ def cluster_activities(activities: list[Activity]) -> dict[UUID, WorkoutClusterR
         kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
         labels = kmeans.fit_predict(scaled)
 
-        label_map = _assign_labels(kmeans, feature_names)
+        label_map = _assign_labels(kmeans, feature_names, _cluster_effort_medians(group, labels, k))
+
+        bundle.models[activity_type] = ActivityTypeClusterModel(
+            kmeans=kmeans,
+            scaler=scaler,
+            label_map=label_map,
+            feature_names=feature_names,
+            n_activities_in_group=len(group),
+            hr_median=hr_median,
+        )
 
         for i, a in enumerate(group):
             cluster_id = int(labels[i])
@@ -133,4 +179,4 @@ def cluster_activities(activities: list[Activity]) -> dict[UUID, WorkoutClusterR
                 n_activities_in_group=len(group),
             )
 
-    return results
+    return results, bundle

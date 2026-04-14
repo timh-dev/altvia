@@ -31,7 +31,7 @@ class PlannedWorkoutService:
             distance_meters=_calculate_route_distance_meters(payload.route_points),
             route_points_json=route_points_json,
             route_geometry=line.wkt,
-            weather_context_json=None,
+            weather_context_json=payload.analysis_context_json,
         )
         created = self.repository.create(planned_workout)
         return PlannedWorkoutSummary(
@@ -41,6 +41,7 @@ class PlannedWorkoutService:
             planned_for=created.planned_for,
             distance_meters=created.distance_meters,
             route_points=payload.route_points,
+            analysis_context_json=created.weather_context_json,
             created_at=created.created_at,
         )
 
@@ -60,6 +61,7 @@ class PlannedWorkoutService:
                     }
                     for point in planned_workout.route_points_json
                 ],
+                analysis_context_json=planned_workout.weather_context_json,
                 created_at=planned_workout.created_at,
             )
             for planned_workout in planned_workouts

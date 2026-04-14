@@ -29,6 +29,7 @@ SUMMARY_COLUMNS = (
     Activity.start_longitude,
     Activity.end_latitude,
     Activity.end_longitude,
+    Activity.weather_json,
     Activity.effort_score_json,
     Activity.workout_cluster_json,
     Activity.predicted_intensity_json,
@@ -118,18 +119,22 @@ class ActivityRepository:
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> list[tuple[Activity, dict]]:
-        statement = (
-            select(Activity, func.ST_AsGeoJSON(Activity.route_geometry).label("route_geojson"))
-            .where(Activity.route_geometry.is_not(None))
-        )
-        statement = self._apply_filters(
-            statement,
-            activity_type=activity_type,
-            start_date=start_date,
-            end_date=end_date,
-        ).order_by(Activity.started_at.desc())
-        rows = self.db.execute(statement).all()
-        return [(activity, json.loads(route_geojson)) for activity, route_geojson in rows if route_geojson]
+        # Fetch activities via summary query (fully loads all SUMMARY_COLUMNS)
+        query = self._summary_query().filter(Activity.route_geometry.is_not(None))
+        query = self._apply_filters(query, activity_type=activity_type, start_date=start_date, end_date=end_date)
+        activities = query.order_by(Activity.started_at.desc()).all()
+
+        # Fetch geometries separately to avoid ORM identity map partial-load issues
+        ids = [a.id for a in activities]
+        if not ids:
+            return []
+        geom_rows = self.db.execute(
+            select(Activity.id, func.ST_AsGeoJSON(Activity.route_geometry).label("geojson"))
+            .where(Activity.id.in_(ids))
+        ).all()
+        geom_map = {row.id: json.loads(row.geojson) for row in geom_rows if row.geojson}
+
+        return [(a, geom_map[a.id]) for a in activities if a.id in geom_map]
 
     def list_all_activities(
         self,
@@ -238,6 +243,18 @@ class ActivityRepository:
         self.db.commit()
         return count
 
+    def get_typical_avg_hr_for_activity_type(self, activity_type: str) -> float | None:
+        """Return median avg HR across past activities of this type, or None if insufficient data."""
+        result = (
+            self.db.query(func.percentile_cont(0.5).within_group(Activity.average_heart_rate_bpm))
+            .filter(
+                Activity.activity_type == activity_type,
+                Activity.average_heart_rate_bpm.is_not(None),
+            )
+            .scalar()
+        )
+        return float(result) if result is not None else None
+
     def list_all_activities_for_clustering(self) -> list[Activity]:
         return (
             self.db.query(Activity)
@@ -249,6 +266,7 @@ class ActivityRepository:
                     Activity.distance_meters,
                     Activity.elevation_gain_meters,
                     Activity.average_heart_rate_bpm,
+                    Activity.max_heart_rate_bpm,
                 )
             )
             .all()

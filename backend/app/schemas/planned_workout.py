@@ -14,6 +14,7 @@ class PlannedWorkoutCreate(BaseModel):
     activity_type: str = Field(min_length=1, max_length=50)
     planned_for: datetime | None = None
     route_points: list[PlannedWorkoutRoutePoint] = Field(min_length=2)
+    analysis_context_json: dict | None = None
 
 
 class PlannedWorkoutSummary(BaseModel):
@@ -23,6 +24,7 @@ class PlannedWorkoutSummary(BaseModel):
     planned_for: datetime | None
     distance_meters: float
     route_points: list[PlannedWorkoutRoutePoint]
+    analysis_context_json: dict | None = None
     created_at: datetime
 
 
