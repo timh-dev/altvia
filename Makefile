@@ -1,5 +1,5 @@
 .PHONY: help up down build rebuild reset logs logs/backend logs/dagster \
-       web/install web/dev web/start web/build web/check \
+       web/install web/dev web/start web/build web/check web/deploy web/deploy/prod \
        backend/shell backend/logs backend/syntax \
        ml/train-intensity ml/train-clustering ml/register-all \
        dagster/ui dagster/logs dagster/materialize \
@@ -87,6 +87,16 @@ web/check: ## Type-check frontend (no emit)
 
 web/preview: ## Preview production build (port 3000)
 	cd $(FRONTEND) && npm run preview
+
+web/deploy: web/build ## Deploy frontend to Vercel (preview)
+	@echo "$(BLUE)Deploying frontend to Vercel (preview)...$(NC)"
+	cd $(FRONTEND) && vercel deploy
+	@echo "$(GREEN)Preview deployment complete$(NC)"
+
+web/deploy/prod: web/build ## Deploy frontend to Vercel (production)
+	@echo "$(BLUE)Deploying frontend to Vercel (production)...$(NC)"
+	cd $(FRONTEND) && vercel deploy --prod
+	@echo "$(GREEN)Production deployment complete$(NC)"
 
 # ─── Backend ─────────────────────────────────────────────────────────
 backend/shell: ## Open a bash shell in the backend container
