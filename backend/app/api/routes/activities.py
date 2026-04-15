@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_database
 from app.repositories.activity_repository import ActivityRepository
-from app.schemas.activity import ActivityAnalytics, ActivityDetail, ActivityMapFeatureCollection, ActivitySummary, ActivityTimeline
+from app.schemas.activity import ActivityAnalytics, ActivityDetail, ActivityMapFeatureCollection, ActivitySummary, ActivityTimeline, SimilarRoutesResponse
 from app.services.activity_service import ActivityService
+from app.services.route_similarity_service import RouteSimilarityService
 
 
 router = APIRouter()
@@ -54,6 +55,16 @@ def get_activity_timeline(
 ) -> ActivityTimeline:
     service = ActivityService(ActivityRepository(db))
     return service.get_activity_timeline(activity_type=activity_type)
+
+
+@router.get("/{activity_id}/similar", response_model=SimilarRoutesResponse)
+def get_similar_routes(activity_id: UUID, db: Session = Depends(get_database)) -> SimilarRoutesResponse:
+    repo = ActivityRepository(db)
+    activity = repo.get_activity(activity_id)
+    if activity is None:
+        raise HTTPException(status_code=404, detail="Activity not found.")
+    service = RouteSimilarityService(repo)
+    return service.find_similar_routes(activity_id)
 
 
 @router.get("/{activity_id}", response_model=ActivityDetail)

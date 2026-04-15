@@ -46,6 +46,7 @@ def initialize_database() -> None:
         "ALTER TABLE IF EXISTS activities ADD COLUMN IF NOT EXISTS effort_score_json JSONB",
         "ALTER TABLE IF EXISTS activities ADD COLUMN IF NOT EXISTS workout_cluster_json JSONB",
         "ALTER TABLE IF EXISTS activities ADD COLUMN IF NOT EXISTS predicted_intensity_json JSONB",
+        "CREATE INDEX IF NOT EXISTS idx_activities_route_geometry ON activities USING GIST (route_geometry)",
     ]
 
     with engine.begin() as connection:

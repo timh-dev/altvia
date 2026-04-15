@@ -458,6 +458,37 @@ export async function importProjectAppleHealthExport() {
   return response.json() as Promise<ImportJobResponse>;
 }
 
+export type SimilarRouteMatch = {
+  activity_id: string;
+  name: string;
+  started_at: string | null;
+  activity_type: string;
+  distance_meters: number | null;
+  duration_seconds: number | null;
+  elevation_gain_meters: number | null;
+  average_heart_rate_bpm: number | null;
+  max_heart_rate_bpm: number | null;
+  effort_score: number | null;
+  avg_pace_seconds_per_km: number | null;
+  hausdorff_distance_m: number;
+  route_points_json: ActivityRoutePoint[] | null;
+};
+
+export type SimilarRoutesResponse = {
+  reference_activity_id: string;
+  matches: SimilarRouteMatch[];
+  match_count: number;
+};
+
+export async function fetchSimilarRoutes(activityId: string) {
+  const response = await fetch(`${API_BASE_URL}/api/activities/${activityId}/similar`);
+  if (!response.ok) {
+    throw new Error("Failed to load similar routes.");
+  }
+
+  return response.json() as Promise<SimilarRoutesResponse>;
+}
+
 export type IntensityPredictionRequest = {
   activity_type: string;
   duration_seconds: number;

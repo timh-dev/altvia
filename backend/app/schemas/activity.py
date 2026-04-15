@@ -151,3 +151,25 @@ class ActivityRoutePoint(BaseModel):
 class ActivityDetail(ActivitySummary):
     workout_metadata_json: dict[str, str] | None
     route_points_json: list[ActivityRoutePoint] | None
+
+
+class SimilarRouteMatch(BaseModel):
+    activity_id: UUID
+    name: str
+    started_at: datetime | None
+    activity_type: str
+    distance_meters: float | None
+    duration_seconds: float | None
+    elevation_gain_meters: float | None
+    average_heart_rate_bpm: float | None
+    max_heart_rate_bpm: float | None
+    effort_score: float | None
+    avg_pace_seconds_per_km: float | None
+    hausdorff_distance_m: float
+    route_points_json: list[ActivityRoutePoint] | None = None
+
+
+class SimilarRoutesResponse(BaseModel):
+    reference_activity_id: UUID
+    matches: list[SimilarRouteMatch]
+    match_count: int

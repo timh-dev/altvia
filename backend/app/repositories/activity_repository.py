@@ -1,7 +1,8 @@
 from datetime import date, datetime, timedelta
 import json
+from uuid import UUID
 
-from sqlalchemy import cast, Date, func, select
+from sqlalchemy import cast, Date, func, select, text, literal_column
 from sqlalchemy.orm import Session, load_only
 
 from app.models.activity import Activity
@@ -306,6 +307,83 @@ class ActivityRepository:
         )
         self.db.commit()
         return count
+
+    def find_similar_routes(self, activity_id: UUID, *, limit: int = 20) -> list[tuple[Activity, float]]:
+        """Find activities with similar routes using PostGIS spatial comparison.
+
+        Returns list of (Activity, hausdorff_distance_meters) tuples sorted by similarity.
+        """
+        # Use raw SQL with CTEs for the spatial query
+        sql = text("""
+            WITH target AS (
+                SELECT id, route_geometry, distance_meters, activity_type,
+                       start_latitude, start_longitude
+                FROM activities
+                WHERE id = :activity_id
+                  AND route_geometry IS NOT NULL
+            )
+            SELECT
+                a.id,
+                ST_HausdorffDistance(
+                    ST_Simplify(a.route_geometry, 0.0001),
+                    ST_Simplify(target.route_geometry, 0.0001)
+                ) AS hausdorff_deg
+            FROM activities a
+            CROSS JOIN target
+            WHERE a.id != target.id
+              AND a.route_geometry IS NOT NULL
+              AND a.activity_type = target.activity_type
+              AND a.distance_meters IS NOT NULL
+              AND target.distance_meters IS NOT NULL
+              AND a.distance_meters BETWEEN target.distance_meters * 0.7 AND target.distance_meters * 1.3
+              AND a.start_latitude IS NOT NULL
+              AND a.start_longitude IS NOT NULL
+              AND target.start_latitude IS NOT NULL
+              AND target.start_longitude IS NOT NULL
+              AND ABS(a.start_latitude - target.start_latitude) < 0.005
+              AND ABS(a.start_longitude - target.start_longitude) < 0.005
+              AND ST_HausdorffDistance(
+                    ST_Simplify(a.route_geometry, 0.0001),
+                    ST_Simplify(target.route_geometry, 0.0001)
+                  ) < 0.002
+            ORDER BY hausdorff_deg ASC
+            LIMIT :max_results
+        """)
+
+        rows = self.db.execute(sql, {"activity_id": str(activity_id), "max_results": limit}).fetchall()
+        if not rows:
+            return []
+
+        matched_ids = [row[0] for row in rows]
+        hausdorff_map = {row[0]: row[1] for row in rows}
+
+        # Fetch full activity objects (with summary columns) separately
+        activities = (
+            self._summary_query()
+            .filter(Activity.id.in_(matched_ids))
+            .all()
+        )
+
+        activity_map = {a.id: a for a in activities}
+        # Degrees to meters: 1 degree ≈ 111,320 meters at equator (rough approximation)
+        deg_to_m = 111320.0
+
+        return [
+            (activity_map[mid], hausdorff_map[mid] * deg_to_m)
+            for mid in matched_ids
+            if mid in activity_map
+        ]
+
+    def get_route_points_for_ids(self, activity_ids: list[UUID]) -> dict[UUID, list]:
+        """Fetch route_points_json for a list of activity IDs."""
+        if not activity_ids:
+            return {}
+        rows = self.db.execute(
+            select(Activity.id, Activity.route_points_json)
+            .where(Activity.id.in_([str(aid) for aid in activity_ids]))
+            .where(Activity.route_points_json.is_not(None))
+        ).all()
+        return {row[0]: row[1] for row in rows}
 
     def list_daily_timeline(self, *, activity_type: str | None = None) -> list[tuple[date, int, float, float]]:
         started_on = cast(Activity.started_at, Date)

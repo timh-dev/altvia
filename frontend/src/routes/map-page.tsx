@@ -27,12 +27,15 @@ import {
   type ActivityRoutePoint,
   type ActivitySummary,
   type ActivityTimeline,
+  type SimilarRoutesResponse,
   fetchActivities,
   fetchActivityDetail,
   fetchActivityAnalytics,
   fetchActivityMapFeatures,
   fetchActivityTimeline,
+  fetchSimilarRoutes,
 } from "@/lib/api";
+import { SimilarRoutesChart, type SimilarRouteMetricMode } from "@/components/similar-routes-chart";
 import { cn } from "@/lib/utils";
 import {
   formatDistance,
@@ -66,6 +69,10 @@ const EMPTY_HOVER_POINT = {
   type: "FeatureCollection",
   features: [],
 } satisfies GeoJSON.FeatureCollection<GeoJSON.Point, { route_index: number }>;
+const EMPTY_SIMILAR_ROUTES = {
+  type: "FeatureCollection",
+  features: [],
+} satisfies GeoJSON.FeatureCollection<GeoJSON.LineString>;
 const MAP_TERRAIN_SOURCE_ID = "map-terrain-dem";
 const MAP_HILLSHADE_LAYER_ID = "map-terrain-hillshade";
 const MAP_TERRAIN_TILES = ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"];
@@ -147,6 +154,10 @@ export function MapPage() {
   const [error, setError] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [terrainEnabled, setTerrainEnabled] = useState(false);
+  const [similarRoutes, setSimilarRoutes] = useState<SimilarRoutesResponse | null>(null);
+  const [similarRoutesLoading, setSimilarRoutesLoading] = useState(false);
+  const [showSimilarRoutes, setShowSimilarRoutes] = useState(false);
+  const [similarRouteMetricMode, setSimilarRouteMetricMode] = useState<SimilarRouteMetricMode>("pace");
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
@@ -296,6 +307,25 @@ export function MapPage() {
       map.addSource("selected-workout-hover-point", {
         type: "geojson",
         data: EMPTY_HOVER_POINT,
+      });
+      map.addSource("similar-routes", {
+        type: "geojson",
+        data: EMPTY_SIMILAR_ROUTES,
+      });
+
+      map.addLayer({
+        id: "similar-routes-lines",
+        type: "line",
+        source: "similar-routes",
+        paint: {
+          "line-color": "rgba(148, 163, 184, 0.55)",
+          "line-width": 3,
+          "line-opacity": 0,
+        },
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
       });
 
       map.addLayer({
@@ -846,6 +876,8 @@ export function MapPage() {
     if (!selectedActivityId) {
       setSelectedActivityDetail(null);
       setDetailLoading(false);
+      setSimilarRoutes(null);
+      setShowSimilarRoutes(false);
       return;
     }
 
@@ -888,6 +920,53 @@ export function MapPage() {
       setFiltersLoading(false);
     }
   }
+
+  async function loadSimilarRoutes() {
+    if (!selectedActivityId) return;
+    setSimilarRoutesLoading(true);
+    try {
+      const result = await fetchSimilarRoutes(selectedActivityId);
+      setSimilarRoutes(result);
+      setShowSimilarRoutes(true);
+    } catch {
+      setSimilarRoutes(null);
+    } finally {
+      setSimilarRoutesLoading(false);
+    }
+  }
+
+  // Sync similar routes to map layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const source = map.getSource("similar-routes") as GeoJSONSource | undefined;
+    if (!source) return;
+
+    if (!showSimilarRoutes || !similarRoutes?.matches.length) {
+      source.setData(EMPTY_SIMILAR_ROUTES);
+      if (map.getLayer("similar-routes-lines")) {
+        map.setPaintProperty("similar-routes-lines", "line-opacity", 0);
+      }
+      return;
+    }
+
+    const features: GeoJSON.Feature<GeoJSON.LineString>[] = similarRoutes.matches
+      .filter((m) => m.route_points_json && m.route_points_json.length >= 2)
+      .map((m) => ({
+        type: "Feature" as const,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: m.route_points_json!.map((p) => [p.longitude, p.latitude]),
+        },
+        properties: { activity_id: m.activity_id, name: m.name },
+      }));
+
+    source.setData({ type: "FeatureCollection", features });
+    if (map.getLayer("similar-routes-lines")) {
+      map.setPaintProperty("similar-routes-lines", "line-opacity", 0.55);
+    }
+  }, [showSimilarRoutes, similarRoutes]);
 
   async function loadTimelineAndWorkspace(activityType: string | null) {
     if (activityType === null) {
@@ -1433,6 +1512,62 @@ export function MapPage() {
         </div>
       ) : null}
 
+      {showSimilarRoutes && similarRoutes && similarRoutes.match_count > 0 ? (
+        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2 rounded-[1.35rem] border border-[var(--border-divider)] bg-[var(--glass-panel)] px-4 py-3 shadow-[0_18px_40px_var(--shadow-color)] backdrop-blur-[24px]">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--text-label)]">Route Comparison</p>
+              <p className="truncate text-xs text-[var(--text-subtle)]">
+                {selectedActivity?.name ?? "Selected workout"} vs {similarRoutes.match_count} similar
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {(["pace", "hr", "elevation"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setSimilarRouteMetricMode(m)}
+                  className={cn(
+                    "inline-flex items-center rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.18em] transition-colors",
+                    similarRouteMetricMode === m
+                      ? "border-[#22d3ee] bg-[#22d3ee]/10 text-[#22d3ee]"
+                      : "border-[var(--border-solid)] bg-[var(--glass-pill)] text-[var(--text-muted)]",
+                  )}
+                >
+                  {m === "hr" ? "Heart Rate" : m === "pace" ? "Pace" : "Elevation"}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setShowSimilarRoutes(false)}
+                className="inline-flex items-center rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          <SimilarRoutesChart
+            referenceSeries={
+              selectedActivityDetail?.route_points_json
+                ? {
+                    activityId: selectedActivityDetail.id,
+                    label: formatDateTime(selectedActivityDetail.started_at) ?? "Reference",
+                    routePoints: selectedActivityDetail.route_points_json,
+                  }
+                : null
+            }
+            similarSeries={similarRoutes.matches
+              .filter((m) => m.route_points_json && m.route_points_json.length >= 2)
+              .map((m) => ({
+                activityId: m.activity_id,
+                label: formatDateTime(m.started_at) ?? m.name,
+                routePoints: m.route_points_json!,
+              }))}
+            mode={similarRouteMetricMode}
+          />
+        </div>
+      ) : null}
+
       {hasActiveTypeSelection ? (
         <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex w-[min(360px,calc(100vw-2rem))] items-center justify-between gap-3 rounded-[1.35rem] border border-[var(--border-divider)] bg-[var(--glass-panel-medium)] px-4 py-3 shadow-[0_18px_40px_var(--shadow-color)] backdrop-blur-[24px] sm:right-6">
           <div className="min-w-0 flex-1">
@@ -1610,6 +1745,68 @@ export function MapPage() {
             </div>
           );
         })() : null}
+        {selectedActivity ? (
+          <div className="mt-3 border-t border-[var(--border-divider)] pt-3">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--text-label)]">Similar Routes</p>
+              {similarRoutes ? (
+                <span className="inline-flex items-center rounded-full bg-[var(--glass-pill)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
+                  {similarRoutes.match_count} match{similarRoutes.match_count !== 1 ? "es" : ""}
+                </span>
+              ) : null}
+            </div>
+            {!similarRoutes && !similarRoutesLoading ? (
+              <button
+                type="button"
+                onClick={() => void loadSimilarRoutes()}
+                className="pointer-events-auto mt-2 w-full rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors hover:bg-[var(--glass-card-light)]"
+              >
+                Find Similar Routes
+              </button>
+            ) : null}
+            {similarRoutesLoading ? (
+              <p className="mt-2 text-xs text-[var(--text-muted)]">Searching...</p>
+            ) : null}
+            {similarRoutes && similarRoutes.match_count === 0 ? (
+              <p className="mt-2 text-xs text-[var(--text-muted)]">No similar routes found.</p>
+            ) : null}
+            {similarRoutes && similarRoutes.match_count > 0 ? (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSimilarRoutes((v) => !v)}
+                  className="pointer-events-auto w-full rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors hover:bg-[var(--glass-card-light)]"
+                >
+                  {showSimilarRoutes ? "Hide Comparison" : "Compare Routes"}
+                </button>
+                {showSimilarRoutes ? (
+                  <div className="pointer-events-auto mt-2 max-h-48 overflow-y-auto">
+                    {similarRoutes.matches
+                      .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
+                      .map((match) => (
+                        <div
+                          key={match.activity_id}
+                          className="mb-1.5 rounded-lg border border-[var(--border-translucent-strong)] bg-[var(--glass-card-light)] px-2.5 py-1.5 text-xs"
+                        >
+                          <div className="font-medium text-[var(--text-primary)]">{formatDateTime(match.started_at)}</div>
+                          <div className="mt-0.5 grid grid-cols-2 gap-x-2 text-[var(--text-muted)]">
+                            <div>{formatDistance(match.distance_meters, unitSystem)}</div>
+                            <div>{formatDuration(match.duration_seconds)}</div>
+                            {match.average_heart_rate_bpm != null ? (
+                              <div>{formatHeartRate(match.average_heart_rate_bpm)}</div>
+                            ) : null}
+                            {match.effort_score != null ? (
+                              <div>Effort: {Math.round(match.effort_score)}</div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
