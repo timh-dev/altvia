@@ -605,8 +605,7 @@ export function PlannerPage() {
     setWorkoutName(defaultPlannerName(nextType));
     setLoadedRoutePoints(null);
     setLoadedPlanId(null);
-    setPlannedDurationMinutes("");
-    setTargetHeartRateBpm("");
+    setTargetPaceInput("");
     clearPlannerAnalysisState();
   }
 
