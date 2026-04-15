@@ -1,3 +1,4 @@
+import type { ChangeEvent } from "react";
 import { useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
@@ -61,6 +62,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const setUiScale = useAppStore((state) => state.setUiScale);
   const theme = useAppStore((state) => state.theme);
   const setTheme = useAppStore((state) => state.setTheme);
+  const maxHeartRate = useAppStore((state) => state.maxHeartRate);
+  const setMaxHeartRate = useAppStore((state) => state.setMaxHeartRate);
 
   useEffect(() => {
     if (!open) {
@@ -162,6 +165,42 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               <p className="text-xs">{option.description}</p>
             </button>
           ))}
+        </div>
+      </div>
+      <div className="mt-4 border-t border-[var(--border-translucent)] pt-4">
+        <p className="text-sm font-semibold text-[var(--text-primary)]">Heart Rate</p>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          Used to calculate HR zones. Leave blank to auto-detect from your highest recorded heart rate.
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            type="number"
+            min={100}
+            max={250}
+            placeholder="Auto-detect"
+            value={maxHeartRate ?? ""}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              const raw = event.target.value;
+              if (raw === "") {
+                setMaxHeartRate(null);
+                return;
+              }
+              const parsed = Number(raw);
+              if (Number.isFinite(parsed) && parsed > 0) {
+                setMaxHeartRate(parsed);
+              }
+            }}
+            className="w-full rounded-[1rem] border border-[var(--border-secondary)] bg-[var(--surface-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-faint)] outline-none focus:border-[var(--accent-green)]"
+          />
+          {maxHeartRate != null ? (
+            <button
+              type="button"
+              onClick={() => setMaxHeartRate(null)}
+              className="shrink-0 rounded-full border border-[var(--border-solid)] bg-[var(--glass-pill)] px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]"
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

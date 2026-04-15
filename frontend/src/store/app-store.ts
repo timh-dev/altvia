@@ -40,6 +40,8 @@ type AppStore = {
   setUiScale: (next: UiScale) => void;
   theme: ThemePreference;
   setTheme: (next: ThemePreference) => void;
+  maxHeartRate: number | null;
+  setMaxHeartRate: (value: number | null) => void;
 };
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -122,5 +124,22 @@ export const useAppStore = create<AppStore>((set) => ({
       window.localStorage.setItem("theme", next);
     }
     set({ theme: next });
+  },
+  maxHeartRate: (() => {
+    if (typeof window === "undefined") return null;
+    const stored = window.localStorage.getItem("maxHeartRate");
+    if (!stored) return null;
+    const parsed = Number(stored);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  })(),
+  setMaxHeartRate: (value) => {
+    if (typeof window !== "undefined") {
+      if (value == null) {
+        window.localStorage.removeItem("maxHeartRate");
+      } else {
+        window.localStorage.setItem("maxHeartRate", String(value));
+      }
+    }
+    set({ maxHeartRate: value });
   },
 }));

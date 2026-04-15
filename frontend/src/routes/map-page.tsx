@@ -125,6 +125,7 @@ export function MapPage() {
   const openPlanner = useAppStore((state) => state.openPlanner);
   const unitSystem = useAppStore((state) => state.unitSystem);
   const uiScale = useAppStore((state) => state.uiScale);
+  const maxHeartRate = useAppStore((state) => state.maxHeartRate);
   const isCompact = uiScale === "compact";
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [mapData, setMapData] = useState<ActivityMapFeatureCollection>(EMPTY_COLLECTION);
@@ -158,6 +159,8 @@ export function MapPage() {
   const [similarRoutesLoading, setSimilarRoutesLoading] = useState(false);
   const [showSimilarRoutes, setShowSimilarRoutes] = useState(false);
   const [similarRouteMetricMode, setSimilarRouteMetricMode] = useState<SimilarRouteMetricMode>("pace");
+  const [chartView, setChartView] = useState<ChartView>("timeline");
+  const [activeZone, setActiveZone] = useState<number | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
@@ -198,6 +201,10 @@ export function MapPage() {
   const selectedMetricSeries = useMemo(
     () => buildRouteMetricSeries(selectedActivityDetail, routeStyleMode, unitSystem),
     [selectedActivityDetail, routeStyleMode, unitSystem],
+  );
+  const zoneDistribution = useMemo(
+    () => buildZoneDistribution(selectedActivityDetail, routeStyleMode, maxHeartRate, activities, unitSystem),
+    [selectedActivityDetail, routeStyleMode, maxHeartRate, activities, unitSystem],
   );
   const selectedPaceRange = useMemo(
     () => buildDetailMetricRange(selectedActivityDetail, "pace"),
@@ -755,14 +762,57 @@ export function MapPage() {
       map.setPaintProperty("selected-workout-core", "line-opacity", selectedCoreOpacity);
     }
 
+    const hasZoneHighlight = activeZone != null && zoneDistribution;
+    const zoneRouteIndexes = hasZoneHighlight
+      ? (zoneDistribution.zones.find((z) => z.zone === activeZone)?.routeIndexes ?? [])
+      : [];
+
     if (map.getLayer("selected-workout-detail-glow")) {
-      map.setPaintProperty("selected-workout-detail-glow", "line-opacity", detailOpacity === 0 ? 0 : 0.42);
+      if (detailOpacity === 0) {
+        map.setPaintProperty("selected-workout-detail-glow", "line-opacity", 0);
+        map.setPaintProperty("selected-workout-detail-glow", "line-width", 14);
+      } else if (hasZoneHighlight) {
+        map.setPaintProperty("selected-workout-detail-glow", "line-opacity", [
+          "case",
+          ["in", ["get", "route_index"], ["literal", zoneRouteIndexes]],
+          0.72,
+          0.0,
+        ]);
+        map.setPaintProperty("selected-workout-detail-glow", "line-width", [
+          "case",
+          ["in", ["get", "route_index"], ["literal", zoneRouteIndexes]],
+          20,
+          14,
+        ]);
+      } else {
+        map.setPaintProperty("selected-workout-detail-glow", "line-opacity", 0.42);
+        map.setPaintProperty("selected-workout-detail-glow", "line-width", 14);
+      }
     }
 
     if (map.getLayer("selected-workout-detail-core")) {
-      map.setPaintProperty("selected-workout-detail-core", "line-opacity", detailOpacity === 0 ? 0 : 0.98);
+      if (detailOpacity === 0) {
+        map.setPaintProperty("selected-workout-detail-core", "line-opacity", 0);
+        map.setPaintProperty("selected-workout-detail-core", "line-width", 7);
+      } else if (hasZoneHighlight) {
+        map.setPaintProperty("selected-workout-detail-core", "line-opacity", [
+          "case",
+          ["in", ["get", "route_index"], ["literal", zoneRouteIndexes]],
+          1.0,
+          0.06,
+        ]);
+        map.setPaintProperty("selected-workout-detail-core", "line-width", [
+          "case",
+          ["in", ["get", "route_index"], ["literal", zoneRouteIndexes]],
+          9,
+          4,
+        ]);
+      } else {
+        map.setPaintProperty("selected-workout-detail-core", "line-opacity", 0.98);
+        map.setPaintProperty("selected-workout-detail-core", "line-width", 7);
+      }
     }
-  }, [routeStyleMode]);
+  }, [routeStyleMode, activeZone, zoneDistribution]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -796,12 +846,16 @@ export function MapPage() {
       setSelectedRoutePointIndex(null);
       setPlaybackActive(false);
     }
+    setChartView("timeline");
+    setActiveZone(null);
   }, [routeStyleMode, selectedMetricSeries, selectedActivityId]);
 
   useEffect(() => {
     setHoveredRoutePointIndex(null);
     setSelectedRoutePointIndex(null);
     setPlaybackActive(false);
+    setChartView("timeline");
+    setActiveZone(null);
   }, [selectedActivityId]);
 
   useEffect(() => {
@@ -1506,6 +1560,11 @@ export function MapPage() {
                   setSelectedRoutePointIndex(routePointIndex);
                   setPlaybackActive(false);
                 }}
+                zoneDistribution={zoneDistribution}
+                chartView={chartView}
+                setChartView={setChartView}
+                activeZone={activeZone}
+                setActiveZone={setActiveZone}
               />
             </>
           ) : null}
@@ -2026,6 +2085,11 @@ function RouteMetricChart({
   onHoverChange,
   onHoverClear,
   onPointSelect,
+  zoneDistribution,
+  chartView,
+  setChartView,
+  activeZone,
+  setActiveZone,
 }: {
   series: RouteMetricSeries;
   mode: RouteStyleMode;
@@ -2033,6 +2097,11 @@ function RouteMetricChart({
   onHoverChange: (routePointIndex: number) => void;
   onHoverClear: () => void;
   onPointSelect: (routePointIndex: number) => void;
+  zoneDistribution: ZoneDistribution | null;
+  chartView: ChartView;
+  setChartView: (view: ChartView) => void;
+  activeZone: number | null;
+  setActiveZone: (zone: number | null) => void;
 }) {
   const width = 700;
   const height = 160;
@@ -2097,38 +2166,109 @@ function RouteMetricChart({
     }
   }
 
+  const zoneOpacities = [0.30, 0.45, 0.60, 0.75, 0.92];
+
   return (
     <div className="pointer-events-auto relative overflow-hidden rounded-[1.2rem] border border-[var(--border-translucent-strong)] bg-[var(--glass-card-light)] px-3 py-3">
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="h-40 w-full"
-          onMouseMove={handlePointerMove}
-          onMouseLeave={onHoverClear}
-          onClick={handlePointerDown}
-        >
-          <defs>
-            <linearGradient id="route-metric-area" x1="0%" x2="0%" y1="0%" y2="100%">
-              <stop offset="0%" style={{ stopColor: chartArea }} stopOpacity="0.18" />
-              <stop offset="100%" style={{ stopColor: chartArea }} stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-          <line x1={paddingX} y1={paddingY + innerHeight} x2={paddingX + innerWidth} y2={paddingY + innerHeight} style={{ stroke: "var(--chart-axis)" }} strokeWidth="1" />
-          <path d={areaPath} fill="url(#route-metric-area)" />
-          <path d={path} fill="none" style={{ stroke: chartStroke }} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-          {hoveredX != null && hoveredY != null ? (
-            <>
-              <line x1={hoveredX} y1={paddingY} x2={hoveredX} y2={paddingY + innerHeight} style={{ stroke: "var(--chart-hover-line)" }} strokeWidth="1" strokeDasharray="4 4" />
-              <circle cx={hoveredX} cy={hoveredY} r="5.5" style={{ fill: "var(--chart-point-fill)", stroke: chartStroke }} strokeWidth="2.5" />
-            </>
-          ) : null}
-        </svg>
-        <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-subtle)]">
-          <span>{series.startLabel}</span>
-          <span>
-            {series.minLabel} to {series.maxLabel}
-          </span>
-          <span>{series.endLabel}</span>
+      {zoneDistribution ? (
+        <div className="mb-3 flex gap-1">
+          {(["timeline", "zones"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => {
+                setChartView(tab);
+                if (tab === "timeline") {
+                  setActiveZone(null);
+                }
+              }}
+              className={cn(
+                "rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
+                chartView === tab
+                  ? "border-[var(--accent-green)] bg-[var(--accent-green)]/10 text-[var(--accent-green)]"
+                  : "border-[var(--border-solid)] bg-[var(--glass-pill)] text-[var(--text-muted)]",
+              )}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
+      ) : null}
+      {chartView === "timeline" ? (
+        <>
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="h-40 w-full"
+            onMouseMove={handlePointerMove}
+            onMouseLeave={onHoverClear}
+            onClick={handlePointerDown}
+          >
+            <defs>
+              <linearGradient id="route-metric-area" x1="0%" x2="0%" y1="0%" y2="100%">
+                <stop offset="0%" style={{ stopColor: chartArea }} stopOpacity="0.18" />
+                <stop offset="100%" style={{ stopColor: chartArea }} stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            <line x1={paddingX} y1={paddingY + innerHeight} x2={paddingX + innerWidth} y2={paddingY + innerHeight} style={{ stroke: "var(--chart-axis)" }} strokeWidth="1" />
+            <path d={areaPath} fill="url(#route-metric-area)" />
+            <path d={path} fill="none" style={{ stroke: chartStroke }} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            {hoveredX != null && hoveredY != null ? (
+              <>
+                <line x1={hoveredX} y1={paddingY} x2={hoveredX} y2={paddingY + innerHeight} style={{ stroke: "var(--chart-hover-line)" }} strokeWidth="1" strokeDasharray="4 4" />
+                <circle cx={hoveredX} cy={hoveredY} r="5.5" style={{ fill: "var(--chart-point-fill)", stroke: chartStroke }} strokeWidth="2.5" />
+              </>
+            ) : null}
+          </svg>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-subtle)]">
+            <span>{series.startLabel}</span>
+            <span>
+              {series.minLabel} to {series.maxLabel}
+            </span>
+            <span>{series.endLabel}</span>
+          </div>
+        </>
+      ) : zoneDistribution ? (
+        <div className="flex flex-col gap-2">
+          {zoneDistribution.zones.map((zone, idx) => {
+            const isActive = activeZone === zone.zone;
+            return (
+              <button
+                key={zone.zone}
+                type="button"
+                onClick={() => setActiveZone(isActive ? null : zone.zone)}
+                className={cn(
+                  "flex items-center gap-3 rounded-[0.85rem] border px-3 py-2 text-left transition-colors",
+                  isActive
+                    ? "border-[var(--accent-green)] bg-[var(--accent-green)]/8"
+                    : "border-[var(--border-translucent)] bg-transparent hover:bg-[var(--surface-secondary)]",
+                )}
+              >
+                <div className="w-[110px] shrink-0">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-label)]">
+                    Z{zone.zone} {zone.label}
+                  </p>
+                  <p className="text-[10px] text-[var(--text-faint)]">{zone.rangeLabel}</p>
+                </div>
+                <div className="relative flex-1">
+                  <div className="h-5 w-full rounded-full bg-[var(--surface-secondary)]">
+                    <div
+                      className="h-5 rounded-full transition-all"
+                      style={{
+                        width: `${Math.max(zone.fraction * 100, 2)}%`,
+                        backgroundColor: chartStroke,
+                        opacity: zoneOpacities[idx],
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="w-[60px] shrink-0 text-right font-mono text-[11px] text-[var(--text-subtle)]">
+                  {formatZoneDuration(zone.durationSeconds)}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2393,6 +2533,22 @@ type DetailMetricRange = {
   max: number;
 };
 
+type ZoneInfo = {
+  zone: number;
+  label: string;
+  rangeLabel: string;
+  durationSeconds: number;
+  fraction: number;
+  routeIndexes: number[];
+};
+
+type ZoneDistribution = {
+  zones: ZoneInfo[];
+  totalSeconds: number;
+};
+
+type ChartView = "timeline" | "zones";
+
 function buildRouteMetricSeries(
   activity: ActivityDetail | null,
   mode: RouteStyleMode,
@@ -2470,6 +2626,198 @@ function buildDetailMetricRange(
     min: Math.min(...values),
     max: Math.max(...values),
   };
+}
+
+const HR_ZONE_DEFS = [
+  { zone: 1, label: "Recovery", low: 0.50, high: 0.60 },
+  { zone: 2, label: "Aerobic", low: 0.60, high: 0.70 },
+  { zone: 3, label: "Tempo", low: 0.70, high: 0.80 },
+  { zone: 4, label: "Threshold", low: 0.80, high: 0.90 },
+  { zone: 5, label: "VO2max", low: 0.90, high: 1.00 },
+] as const;
+
+const PACE_ZONE_LABELS = ["Speed", "Threshold", "Tempo", "Moderate", "Easy"] as const;
+
+function resolveMaxHeartRate(
+  userSetting: number | null,
+  activities: ActivitySummary[],
+): number | null {
+  if (userSetting != null && userSetting > 0) {
+    return userSetting;
+  }
+
+  const candidates = activities
+    .map((a) => a.max_heart_rate_bpm)
+    .filter((v): v is number => v != null && Number.isFinite(v) && v > 0 && v <= 220);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return Math.max(...candidates);
+}
+
+function buildZoneDistribution(
+  activity: ActivityDetail | null,
+  mode: RouteStyleMode,
+  maxHeartRate: number | null,
+  activities: ActivitySummary[],
+  unitSystem: UnitSystem,
+): ZoneDistribution | null {
+  if (!activity || (mode !== "heart_rate" && mode !== "pace")) {
+    return null;
+  }
+
+  const routePoints = activity.route_points_json ?? [];
+  if (routePoints.length < 2) {
+    return null;
+  }
+
+  if (mode === "heart_rate") {
+    const resolvedMax = resolveMaxHeartRate(maxHeartRate, activities);
+    if (resolvedMax == null) {
+      return null;
+    }
+
+    const zones: ZoneInfo[] = HR_ZONE_DEFS.map((def) => ({
+      zone: def.zone,
+      label: def.label,
+      rangeLabel: `${Math.round(resolvedMax * def.low)}–${Math.round(resolvedMax * def.high)} bpm`,
+      durationSeconds: 0,
+      fraction: 0,
+      routeIndexes: [],
+    }));
+
+    let totalSeconds = 0;
+
+    for (let i = 0; i < routePoints.length; i++) {
+      const point = routePoints[i];
+      const hr = point.heart_rate_bpm;
+      if (hr == null || !Number.isFinite(hr)) {
+        continue;
+      }
+
+      let dt = 0;
+      if (i > 0 && point.recorded_at && routePoints[i - 1].recorded_at) {
+        dt = (new Date(point.recorded_at).getTime() - new Date(routePoints[i - 1].recorded_at!).getTime()) / 1000;
+        if (dt < 0 || dt > 300) {
+          dt = 0;
+        }
+      }
+
+      const fraction = hr / resolvedMax;
+      let zoneIndex: number;
+      if (fraction < 0.60) {
+        zoneIndex = 0;
+      } else if (fraction < 0.70) {
+        zoneIndex = 1;
+      } else if (fraction < 0.80) {
+        zoneIndex = 2;
+      } else if (fraction < 0.90) {
+        zoneIndex = 3;
+      } else {
+        zoneIndex = 4;
+      }
+
+      zones[zoneIndex].durationSeconds += dt;
+      zones[zoneIndex].routeIndexes.push(i);
+      totalSeconds += dt;
+    }
+
+    if (totalSeconds <= 0) {
+      return null;
+    }
+
+    for (const zone of zones) {
+      zone.fraction = zone.durationSeconds / totalSeconds;
+    }
+
+    return { zones, totalSeconds };
+  }
+
+  // Pace mode
+  const pacePoints = routePoints
+    .map((point, index) => ({
+      index,
+      pace: sanitizePaceSecondsPerMile(point.pace_seconds_per_mile),
+      recordedAt: point.recorded_at,
+    }))
+    .filter((p): p is { index: number; pace: number; recordedAt: string | null } => p.pace != null && Number.isFinite(p.pace));
+
+  if (pacePoints.length < 2) {
+    return null;
+  }
+
+  const minPace = Math.min(...pacePoints.map((p) => p.pace));
+  const maxPace = Math.max(...pacePoints.map((p) => p.pace));
+  const paceRange = maxPace - minPace;
+
+  if (paceRange <= 0) {
+    return null;
+  }
+
+  const bandWidth = paceRange / 5;
+
+  const zones: ZoneInfo[] = PACE_ZONE_LABELS.map((label, idx) => {
+    const low = minPace + idx * bandWidth;
+    const high = minPace + (idx + 1) * bandWidth;
+    return {
+      zone: idx + 1,
+      label,
+      rangeLabel: `${formatPace(low, unitSystem)} – ${formatPace(high, unitSystem)}`,
+      durationSeconds: 0,
+      fraction: 0,
+      routeIndexes: [],
+    };
+  });
+
+  let totalSeconds = 0;
+
+  for (const pp of pacePoints) {
+    const point = routePoints[pp.index];
+    let dt = 0;
+    if (pp.index > 0 && point.recorded_at && routePoints[pp.index - 1].recorded_at) {
+      dt = (new Date(point.recorded_at!).getTime() - new Date(routePoints[pp.index - 1].recorded_at!).getTime()) / 1000;
+      if (dt < 0 || dt > 300) {
+        dt = 0;
+      }
+    }
+
+    let zoneIndex = Math.floor((pp.pace - minPace) / bandWidth);
+    if (zoneIndex >= 5) {
+      zoneIndex = 4;
+    }
+    if (zoneIndex < 0) {
+      zoneIndex = 0;
+    }
+
+    zones[zoneIndex].durationSeconds += dt;
+    zones[zoneIndex].routeIndexes.push(pp.index);
+    totalSeconds += dt;
+  }
+
+  if (totalSeconds <= 0) {
+    return null;
+  }
+
+  for (const zone of zones) {
+    zone.fraction = zone.durationSeconds / totalSeconds;
+  }
+
+  return { zones, totalSeconds };
+}
+
+function formatZoneDuration(seconds: number) {
+  const totalMinutes = Math.floor(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const secs = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
 }
 
 function scoreFeatures(features: ActivityMapFeatureCollection["features"], mode: RouteStyleMode) {
